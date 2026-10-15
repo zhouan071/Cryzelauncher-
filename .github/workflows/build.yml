@@ -1,0 +1,95 @@
+name: Build CryzenLauncher APK
+
+# Dua mode, dipilih otomatis:
+#  A) Repo ini hanya berisi folder patches/*.patch  -> source Zalith di-clone dari upstream lalu di-patch.
+#  B) Repo ini sudah berisi source lengkap (ada settings.gradle.kts di root) -> langsung dibuild.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Tag/branch Zalith Launcher (hanya dipakai di mode A)"
+        default: "141400"
+      arch:
+        description: "all / arm / arm64 / x86 / x86_64"
+        default: "arm64"
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      UPSTREAM_REPO: https://github.com/ZalithLauncher/ZalithLauncher.git
+      UPSTREAM_REF: ${{ github.event.inputs.upstream_ref || '141400' }}
+      ARCH: ${{ github.event.inputs.arch || 'arm64' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare source
+        run: |
+          if [ -f settings.gradle.kts ]; then
+            echo "Mode B: memakai source di repo ini"
+            echo "SRC=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          else
+            echo "Mode A: clone upstream $UPSTREAM_REF lalu terapkan patch"
+            git clone --depth 1 --branch "$UPSTREAM_REF" "$UPSTREAM_REPO" "$RUNNER_TEMP/src" || {
+              echo "::error::Clone upstream gagal. Cek UPSTREAM_REPO dan tag '$UPSTREAM_REF'."; exit 1; }
+            cd "$RUNNER_TEMP/src"
+            shopt -s nullglob
+            patches=("$GITHUB_WORKSPACE"/patches/*.patch)
+            if [ ${#patches[@]} -eq 0 ]; then echo "::error::Tidak ada file di patches/*.patch"; exit 1; fi
+            for p in "${patches[@]}"; do
+              echo "Patch: $p"
+              patch -p1 --dry-run < "$p" || {
+                echo "::error::Patch $p tidak cocok dengan upstream '$UPSTREAM_REF'. Gunakan tag yang sama dengan source asli."; exit 1; }
+              patch -p1 < "$p"
+            done
+            echo "SRC=$RUNNER_TEMP/src" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK components
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build JRE helper jars
+        run: |
+          cd "$SRC"
+          chmod +x gradlew
+          ./gradlew jre_lwjgl3glfw:build --no-daemon --stacktrace
+
+      - name: Build debug APK (${{ env.ARCH }})
+        run: |
+          cd "$SRC"
+          ./gradlew ZalithLauncher:assembleDebug -Darch="$ARCH" --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CryzenLauncher-debug-${{ env.ARCH }}
+          path: ${{ env.SRC }}/ZalithLauncher/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            ${{ env.SRC }}/ZalithLauncher/build/reports
+            ${{ env.SRC }}/jre_lwjgl3glfw/build/reports
+          if-no-files-found: ignore
