@@ -39,15 +39,25 @@ jobs:
             git clone --depth 1 --branch "$UPSTREAM_REF" "$UPSTREAM_REPO" "$RUNNER_TEMP/src" || {
               echo "::error::Clone upstream gagal. Cek UPSTREAM_REPO dan tag '$UPSTREAM_REF'."; exit 1; }
             cd "$RUNNER_TEMP/src"
-            shopt -s nullglob
-            mapfile -t patches < <(find "$GITHUB_WORKSPACE" -name '*.patch' -not -path '*/.git/*' | sort)
-            if [ ${#patches[@]} -eq 0 ]; then echo "::error::Tidak ada file di patches/*.patch"; exit 1; fi
-            for p in "${patches[@]}"; do
-              echo "Patch: $p"
-              patch -p1 --dry-run < "$p" || {
-                echo "::error::Patch $p tidak cocok dengan upstream '$UPSTREAM_REF'. Gunakan tag yang sama dengan source asli."; exit 1; }
-              patch -p1 < "$p"
-            done
+
+            # Patch terbaru saja (patch bersifat kumulatif dari source asli): cryzen-*.patch urut nama, ambil yang terakhir.
+            PATCH=$(find "$GITHUB_WORKSPACE" -name 'cryzen-*.patch' -not -path '*/.git/*' | sort | tail -1)
+            if [ -z "$PATCH" ]; then
+              echo "::error::Tidak ada file cryzen-*.patch di repo. Isi repo:"; ls -R "$GITHUB_WORKSPACE" | head -40; exit 1
+            fi
+            echo "Patch dipakai: $PATCH"
+            patch -p1 --dry-run < "$PATCH" || {
+              echo "::error::Patch tidak cocok dengan upstream '$UPSTREAM_REF'."; exit 1; }
+            patch -p1 < "$PATCH"
+
+            # Overlay berkas biner (logo/ikon): cryzen-overlay*.zip terbaru, dibuka di atas source.
+            OVERLAY=$(find "$GITHUB_WORKSPACE" -name 'cryzen-overlay*.zip' -not -path '*/.git/*' | sort | tail -1)
+            if [ -n "$OVERLAY" ]; then
+              echo "Overlay dipakai: $OVERLAY"
+              unzip -o "$OVERLAY" -d "$RUNNER_TEMP/src"
+            else
+              echo "::warning::Tidak ada cryzen-overlay*.zip, logo bawaan tidak diganti."
+            fi
             echo "SRC=$RUNNER_TEMP/src" >> "$GITHUB_ENV"
           fi
 
