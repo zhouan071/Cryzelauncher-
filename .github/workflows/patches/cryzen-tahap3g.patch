@@ -1,0 +1,3573 @@
+diff -ruN a/ZalithLauncher/build.gradle.kts b/ZalithLauncher/build.gradle.kts
+--- a/ZalithLauncher/build.gradle.kts	2026-10-24 20:15:53.259951362 +0000
++++ b/ZalithLauncher/build.gradle.kts	2026-10-24 20:15:53.255986561 +0000
+@@ -69,7 +69,7 @@
+     }
+ 
+     defaultConfig {
+-        applicationId = nameId
++        applicationId = "com.cryzen.launcher"
+         minSdk = 26
+         targetSdk = 34
+         versionCode = launcherVersionCode
+@@ -79,7 +79,7 @@
+     }
+ 
+     buildTypes {
+-        val storageProviderId = "$nameId.storage_provider"
++        val storageProviderId = "com.cryzen.launcher.storage_provider"
+ 
+         getByName("debug") {
+             applicationIdSuffix = ".debug"
+diff -ruN a/ZalithLauncher/gradle.properties b/ZalithLauncher/gradle.properties
+--- a/ZalithLauncher/gradle.properties	2026-10-24 20:15:53.268505884 +0000
++++ b/ZalithLauncher/gradle.properties	2026-10-24 20:15:53.264554783 +0000
+@@ -1,5 +1,5 @@
+-launcher_name=ZalithLauncher
+-launcher_app_name=Zalith Launcher
++launcher_name=CryzenLauncher
++launcher_app_name=CryzenLauncher
+ 
+ launcher_version_code=141400
+ launcher_version_name=1.4.1.4
+\ No newline at end of file
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/activity/BaseActivity.java b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/activity/BaseActivity.java
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/activity/BaseActivity.java	2026-10-24 20:15:53.442346746 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/activity/BaseActivity.java	2026-10-24 20:15:53.273604862 +0000
+@@ -28,13 +28,14 @@
+ 
+     @Override
+     protected void attachBaseContext(Context newBase) {
+-        super.attachBaseContext(LocaleHelper.Companion.setLocale(newBase));
++        super.attachBaseContext(com.movtery.zalithlauncher.utils.CryzenTheme.wrap(LocaleHelper.Companion.setLocale(newBase)));
+     }
+ 
+     @Override
+     protected void onCreate(Bundle savedInstanceState) {
+         super.onCreate(savedInstanceState);
+         LocaleHelper.Companion.setLocale(this);
++        com.movtery.zalithlauncher.utils.CryzenTheme.apply(this);
+         Tools.setFullscreen(this);
+         Tools.updateWindowSize(this);
+ 
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/AccountFragment.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/AccountFragment.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/AccountFragment.kt	2026-10-24 20:15:53.452980905 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/AccountFragment.kt	2026-10-24 20:15:53.448533347 +0000
+@@ -114,7 +114,7 @@
+         savedInstanceState: Bundle?
+     ): View {
+         binding = FragmentAccountBinding.inflate(layoutInflater)
+-        mAccountViewWrapper = AccountViewWrapper(binding = binding.viewAccount)
++        mAccountViewWrapper = AccountViewWrapper(binding = binding.viewAccount, skinView = binding.skinView)
+         mProgressDialog = ZHTools.createTaskRunningDialog(binding.root.context)
+         return binding.root
+     }
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsFragment.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsFragment.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsFragment.kt	2026-10-24 20:15:53.461348934 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsFragment.kt	2026-10-24 20:15:53.457546563 +0000
+@@ -5,28 +5,27 @@
+ import android.view.View
+ import android.view.ViewGroup
+ import androidx.fragment.app.Fragment
+-import androidx.viewpager2.adapter.FragmentStateAdapter
+-import androidx.viewpager2.widget.ViewPager2
+-import androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback
+ import com.movtery.anim.AnimPlayer
+ import com.movtery.anim.animations.Animations
+ import com.movtery.zalithlauncher.R
+ import com.movtery.zalithlauncher.databinding.FragmentSettingsBinding
+-import com.movtery.zalithlauncher.event.value.SettingsPageSwapEvent
+ import com.movtery.zalithlauncher.setting.Settings
+-import com.movtery.zalithlauncher.ui.fragment.settings.ControlSettingsFragment
+ import com.movtery.zalithlauncher.ui.fragment.settings.ExperimentalSettingsFragment
+ import com.movtery.zalithlauncher.ui.fragment.settings.GameSettingsFragment
+ import com.movtery.zalithlauncher.ui.fragment.settings.LauncherSettingsFragment
+-import com.movtery.zalithlauncher.ui.fragment.settings.VideoSettingsFragment
+-import org.greenrobot.eventbus.EventBus
+ 
++/**
++ * Launcher settings: Game, Launcher and Experimental pages, chosen from a tab row on top.
++ * (Video and Control settings live on their own pages.)
++ */
+ class SettingsFragment : FragmentWithAnim(R.layout.fragment_settings) {
+     companion object {
+         const val TAG: String = "SettingsFragment"
++        private const val STATE_PAGE = "settings_page"
+     }
+ 
+     private lateinit var binding: FragmentSettingsBinding
++    private var currentPage = 0
+ 
+     override fun onCreateView(
+         inflater: LayoutInflater,
+@@ -38,59 +37,53 @@
+     }
+ 
+     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+-        initViewPager()
++        currentPage = savedInstanceState?.getInt(STATE_PAGE, 0) ?: 0
+ 
+-        binding.settingsTab.observeIndexChange { _, toIndex, reselect, fromUser ->
+-            if (reselect) return@observeIndexChange
+-            if (fromUser) binding.settingsViewpager.setCurrentItem(toIndex, false)
++        binding.settingsTabGame.setOnClickListener { showPage(0) }
++        binding.settingsTabLauncher.setOnClickListener { showPage(1) }
++        binding.settingsTabExperimental.setOnClickListener { showPage(2) }
++
++        if (childFragmentManager.findFragmentById(binding.settingsViewpager.id) == null) {
++            showPage(currentPage)
++        } else {
++            updateTabs(currentPage)
+         }
+     }
+ 
++    override fun onSaveInstanceState(outState: Bundle) {
++        super.onSaveInstanceState(outState)
++        outState.putInt(STATE_PAGE, currentPage)
++    }
++
+     override fun onResume() {
+         super.onResume()
+         Settings.refreshSettings()
+     }
+ 
+-    private fun initViewPager() {
+-        binding.settingsViewpager.apply {
+-            adapter = ViewPagerAdapter(this@SettingsFragment)
+-            orientation = ViewPager2.ORIENTATION_HORIZONTAL
+-            offscreenPageLimit = 1
+-            isUserInputEnabled = false
+-            registerOnPageChangeCallback(object: OnPageChangeCallback() {
+-                override fun onPageSelected(position: Int) {
+-                    super.onPageSelected(position)
+-                    onFragmentSelect(position)
+-                    EventBus.getDefault().post(SettingsPageSwapEvent(position))
+-                }
+-            })
+-        }
++    private fun updateTabs(index: Int) {
++        binding.settingsTabGame.isSelected = index == 0
++        binding.settingsTabLauncher.isSelected = index == 1
++        binding.settingsTabExperimental.isSelected = index == 2
+     }
+ 
+-    private fun onFragmentSelect(position: Int) {
+-        binding.settingsTab.onPageSelected(position)
++    private fun showPage(index: Int) {
++        currentPage = index
++        updateTabs(index)
++        val page: Fragment = when (index) {
++            1 -> LauncherSettingsFragment(this)
++            2 -> ExperimentalSettingsFragment()
++            else -> GameSettingsFragment()
++        }
++        childFragmentManager.beginTransaction()
++            .replace(binding.settingsViewpager.id, page)
++            .commit()
+     }
+ 
+     override fun slideIn(animPlayer: AnimPlayer) {
+-        animPlayer.apply(AnimPlayer.Entry(binding.settingsLayout, Animations.BounceInRight))
+-            .apply(AnimPlayer.Entry(binding.settingsViewpager, Animations.BounceInDown))
++        animPlayer.apply(AnimPlayer.Entry(binding.settingsLayout, Animations.BounceInDown))
+     }
+ 
+     override fun slideOut(animPlayer: AnimPlayer) {
+-        animPlayer.apply(AnimPlayer.Entry(binding.settingsLayout, Animations.FadeOutLeft))
+-            .apply(AnimPlayer.Entry(binding.settingsViewpager, Animations.FadeOutUp))
+-    }
+-
+-    private class ViewPagerAdapter(val fragment: FragmentWithAnim): FragmentStateAdapter(fragment.requireActivity()) {
+-        override fun getItemCount(): Int = 5
+-        override fun createFragment(position: Int): Fragment {
+-            return when(position) {
+-                1 -> ControlSettingsFragment(fragment)
+-                2 -> GameSettingsFragment()
+-                3 -> LauncherSettingsFragment(fragment)
+-                4 -> ExperimentalSettingsFragment()
+-                else -> VideoSettingsFragment()
+-            }
+-        }
++        animPlayer.apply(AnimPlayer.Entry(binding.settingsLayout, Animations.FadeOutUp))
+     }
+-}
+\ No newline at end of file
++}
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsHostFragment.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsHostFragment.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsHostFragment.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/SettingsHostFragment.kt	2026-10-24 20:15:53.465902245 +0000
+@@ -0,0 +1,80 @@
++package com.movtery.zalithlauncher.ui.fragment
++
++import android.os.Bundle
++import android.view.LayoutInflater
++import android.view.View
++import android.view.ViewGroup
++import androidx.annotation.StringRes
++import androidx.fragment.app.Fragment
++import com.movtery.anim.AnimPlayer
++import com.movtery.anim.animations.Animations
++import com.movtery.zalithlauncher.R
++import com.movtery.zalithlauncher.databinding.FragmentSettingsHostBinding
++import com.movtery.zalithlauncher.ui.fragment.settings.ControlSettingsFragment
++import com.movtery.zalithlauncher.ui.fragment.settings.VideoSettingsFragment
++import com.movtery.zalithlauncher.utils.ZHTools
++
++/**
++ * Hosts one of Zalith's settings pages as a stand-alone page (header + content),
++ * so Video and Control settings can live outside the Settings page.
++ */
++abstract class SettingsHostFragment : FragmentWithAnim(R.layout.fragment_settings_host) {
++    private lateinit var binding: FragmentSettingsHostBinding
++
++    protected abstract fun createContent(): Fragment
++    @StringRes protected abstract fun titleRes(): Int
++    @StringRes protected open fun actionTextRes(): Int = 0
++    protected open fun onAction() {}
++
++    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
++        binding = FragmentSettingsHostBinding.inflate(layoutInflater)
++        return binding.root
++    }
++
++    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
++        binding.hostTitle.setText(titleRes())
++        val actionRes = actionTextRes()
++        if (actionRes != 0) {
++            binding.hostAction.setText(actionRes)
++            binding.hostAction.visibility = View.VISIBLE
++            binding.hostAction.setOnClickListener { onAction() }
++        }
++        if (childFragmentManager.findFragmentById(binding.hostContainer.id) == null) {
++            childFragmentManager.beginTransaction()
++                .replace(binding.hostContainer.id, createContent())
++                .commit()
++        }
++    }
++
++    override fun slideIn(animPlayer: AnimPlayer) {
++        animPlayer.apply(AnimPlayer.Entry(binding.hostHeader, Animations.BounceInDown))
++    }
++
++    override fun slideOut(animPlayer: AnimPlayer) {
++        animPlayer.apply(AnimPlayer.Entry(binding.hostHeader, Animations.FadeOutUp))
++    }
++}
++
++/** Video settings, opened from the "Video Setting" button on Home. */
++class VideoSettingsPageFragment : SettingsHostFragment() {
++    companion object {
++        const val TAG: String = "VideoSettingsPageFragment"
++    }
++
++    override fun createContent(): Fragment = VideoSettingsFragment()
++    override fun titleRes(): Int = R.string.setting_category_video
++}
++
++/** Control page: touch/mouse/gamepad settings plus access to the virtual control profile editor. */
++class ControlPageFragment : SettingsHostFragment() {
++    companion object {
++        const val TAG: String = "ControlPageFragment"
++    }
++
++    override fun createContent(): Fragment = ControlSettingsFragment(this)
++    override fun titleRes(): Int = R.string.cz_control_title
++    override fun actionTextRes(): Int = R.string.cz_control_profiles
++    override fun onAction() {
++        ZHTools.swapFragmentWithAnim(this, ControlButtonFragment::class.java, ControlButtonFragment.TAG, null)
++    }
++}
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/download/resource/AbstractResourceDownloadFragment.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/download/resource/AbstractResourceDownloadFragment.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/download/resource/AbstractResourceDownloadFragment.kt	2026-10-24 20:15:53.475465734 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/fragment/download/resource/AbstractResourceDownloadFragment.kt	2026-10-24 20:15:53.470922370 +0000
+@@ -49,7 +49,7 @@
+     private val classify: Classify,
+     private val categoryList: List<Category>,
+     private val showModloader: Boolean,
+-    private val recommendedPlatform: Platform = Platform.CURSEFORGE
++    private val recommendedPlatform: Platform = Platform.MODRINTH
+ ) : FragmentWithAnim(R.layout.fragment_download_resource) {
+     private lateinit var binding: FragmentDownloadResourceBinding
+ 
+@@ -57,7 +57,7 @@
+     private lateinit var mSortAdapter: ObjectSpinnerAdapter<Sort>
+     private lateinit var mCategoryAdapter: ObjectSpinnerAdapter<Category>
+     private lateinit var mModLoaderAdapter: ObjectSpinnerAdapter<ModLoader>
+-    private var mCurrentPlatform: Platform = Platform.CURSEFORGE
++    private var mCurrentPlatform: Platform = Platform.MODRINTH
+     private val mFilters: Filters = Filters()
+ 
+     private val mInfoAdapter = InfoAdapter(parentFragment,
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountPillWrapper.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountPillWrapper.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountPillWrapper.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountPillWrapper.kt	2026-10-24 20:15:53.479922878 +0000
+@@ -0,0 +1,101 @@
++package com.movtery.zalithlauncher.ui.subassembly.account
++
++import android.content.Context
++import android.view.View
++import android.widget.PopupMenu
++import android.widget.Toast
++import androidx.core.content.ContextCompat
++import com.movtery.zalithlauncher.R
++import com.movtery.zalithlauncher.databinding.ViewAccountPillBinding
++import com.movtery.zalithlauncher.feature.accounts.AccountUtils
++import com.movtery.zalithlauncher.feature.accounts.AccountsManager
++import com.movtery.zalithlauncher.feature.log.Logging
++import com.movtery.zalithlauncher.ui.fragment.AccountFragment
++import com.movtery.zalithlauncher.ui.fragment.FragmentWithAnim
++import com.movtery.zalithlauncher.ui.view.SkinView3D
++import com.movtery.zalithlauncher.utils.ZHTools
++import com.movtery.zalithlauncher.utils.skin.SkinLoader
++import net.kdt.pojavlaunch.Tools
++import net.kdt.pojavlaunch.progresskeeper.ProgressKeeper
++
++/**
++ * Compact account pill used on the Home page (avatar + name + chevron).
++ * Same data source as [AccountViewWrapper]; also feeds the optional skin preview panel.
++ */
++class AccountPillWrapper(
++    private val parentFragment: FragmentWithAnim,
++    val binding: ViewAccountPillBinding,
++    private val skinView: SkinView3D? = null
++) {
++    private val mContext: Context = binding.root.context
++
++    init {
++        binding.root.setOnClickListener { showMiniMenu(it) }
++    }
++
++    /** Mini menu: only "add account" and "switch account". */
++    private fun showMiniMenu(anchor: View) {
++        val menu = PopupMenu(mContext, anchor)
++        menu.menu.add(0, 1, 0, R.string.cz_account_add)
++        menu.menu.add(0, 2, 1, R.string.cz_account_switch)
++        menu.setOnMenuItemClickListener { item ->
++            when (item.itemId) {
++                1 -> ZHTools.swapFragmentWithAnim(parentFragment, AccountFragment::class.java, AccountFragment.TAG, null)
++                2 -> showSwitchMenu(anchor)
++            }
++            true
++        }
++        menu.show()
++    }
++
++    private fun showSwitchMenu(anchor: View) {
++        val accounts = AccountsManager.allAccounts
++        if (accounts.isEmpty()) {
++            Toast.makeText(mContext, R.string.cz_account_none, Toast.LENGTH_SHORT).show()
++            return
++        }
++        val currentUuid = AccountsManager.currentAccount?.uniqueUUID
++        val menu = PopupMenu(mContext, anchor)
++        accounts.forEachIndexed { index, account ->
++            menu.menu.add(0, index, index, account.username).apply {
++                isCheckable = true
++                isChecked = account.uniqueUUID == currentUuid
++            }
++        }
++        menu.menu.setGroupCheckable(0, true, true)
++        menu.setOnMenuItemClickListener { item ->
++            if (ProgressKeeper.getTaskCount() > 0) {
++                Toast.makeText(mContext, R.string.tasks_ongoing, Toast.LENGTH_SHORT).show()
++            } else {
++                AccountsManager.currentAccount = accounts[item.itemId]
++            }
++            true
++        }
++        menu.show()
++    }
++
++    fun refreshAccountInfo() {
++        binding.apply {
++            val account = AccountsManager.currentAccount
++            account ?: run {
++                userIcon.setImageDrawable(ContextCompat.getDrawable(mContext, R.drawable.ic_add))
++                userName.setText(R.string.account_add)
++                accountType.visibility = View.GONE
++                skinView?.let { Skin3DLoader.load(it, null) }
++                return
++            }
++
++            runCatching {
++                val size = Tools.dpToPx(mContext.resources.getDimensionPixelSize(R.dimen._52sdp).toFloat()).toInt()
++                userIcon.setImageDrawable(SkinLoader.getAvatarDrawable(mContext, account, size))
++            }.onFailure { e ->
++                Logging.e("AccountPillWrapper", "Failed to load avatar.", e)
++            }
++
++            skinView?.let { Skin3DLoader.load(it, account.uniqueUUID) }
++            userName.text = account.username
++            accountType.text = AccountUtils.getAccountTypeName(mContext, account)
++            accountType.visibility = View.VISIBLE
++        }
++    }
++}
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountViewWrapper.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountViewWrapper.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountViewWrapper.kt	2026-10-24 20:15:53.488858608 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/AccountViewWrapper.kt	2026-10-24 20:15:53.485062002 +0000
+@@ -10,11 +10,16 @@
+ import com.movtery.zalithlauncher.feature.log.Logging
+ import com.movtery.zalithlauncher.ui.fragment.AccountFragment
+ import com.movtery.zalithlauncher.ui.fragment.FragmentWithAnim
++import com.movtery.zalithlauncher.ui.view.SkinView3D
+ import com.movtery.zalithlauncher.utils.ZHTools
+ import com.movtery.zalithlauncher.utils.skin.SkinLoader
+ import net.kdt.pojavlaunch.Tools
+ 
+-class AccountViewWrapper(private val parentFragment: FragmentWithAnim? = null, val binding: ViewAccountBinding) {
++class AccountViewWrapper(
++    private val parentFragment: FragmentWithAnim? = null,
++    val binding: ViewAccountBinding,
++    private val skinView: SkinView3D? = null
++) {
+     private val mContext: Context = binding.root.context
+ 
+     init {
+@@ -37,6 +42,7 @@
+                     userName.setText(R.string.account_add)
+                 }
+                 accountType.visibility = View.GONE
++                skinView?.let { Skin3DLoader.load(it, null) }
+                 return
+             }
+ 
+@@ -54,6 +60,7 @@
+                 Logging.e("AccountViewWrapper", "Failed to load avatar.", e)
+             }
+ 
++            skinView?.let { Skin3DLoader.load(it, account.uniqueUUID) }
+             userName.text = account.username
+             accountType.text = AccountUtils.getAccountTypeName(mContext, account)
+             accountType.visibility = View.VISIBLE
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/Skin3DLoader.kt b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/Skin3DLoader.kt
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/Skin3DLoader.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/subassembly/account/Skin3DLoader.kt	2026-10-24 20:15:53.492869907 +0000
+@@ -0,0 +1,24 @@
++package com.movtery.zalithlauncher.ui.subassembly.account
++
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import com.movtery.zalithlauncher.ui.view.SkinView3D
++import com.movtery.zalithlauncher.utils.path.PathManager
++import java.io.File
++
++/** Loads the saved skin of an account (or the default Steve skin) into a [SkinView3D]. */
++object Skin3DLoader {
++    @JvmStatic
++    fun load(view: SkinView3D, uuid: String?) {
++        val context = view.context.applicationContext
++        Thread {
++            val bitmap: Bitmap? = runCatching {
++                val file = if (uuid != null) File(PathManager.DIR_USER_SKIN, "$uuid.png") else null
++                if (file != null && file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
++            }.getOrNull() ?: runCatching {
++                context.assets.open("steve.png").use { BitmapFactory.decodeStream(it) }
++            }.getOrNull()
++            view.post { if (bitmap != null) view.setSkin(bitmap) }
++        }.start()
++    }
++}
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/view/SkinView3D.java b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/view/SkinView3D.java
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/view/SkinView3D.java	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/ui/view/SkinView3D.java	2026-10-24 20:15:53.499208495 +0000
+@@ -0,0 +1,235 @@
++package com.movtery.zalithlauncher.ui.view;
++
++import android.content.Context;
++import android.graphics.Bitmap;
++import android.graphics.Canvas;
++import android.graphics.Color;
++import android.graphics.Paint;
++import android.os.SystemClock;
++import android.util.AttributeSet;
++import android.view.MotionEvent;
++import android.view.View;
++
++import java.util.ArrayList;
++import java.util.List;
++
++/**
++ * Full-body, rotating 3D preview of a Minecraft skin.
++ * Drawn on a plain Canvas (every box face is a perspective-projected bitmap mesh),
++ * so it clips, fades and animates like any other view. Drag horizontally to turn the player.
++ */
++public class SkinView3D extends View {
++    private static final int GRID = 3;
++    private static final float CAMERA_DISTANCE = 110f;
++    private static final float PITCH = 0.18f;
++    private static final float AUTO_SPEED = 0.0006f; // radians per millisecond
++
++    private static final class Face {
++        final float[] corners; // top-left, top-right, bottom-left (x, y, z each) in model space
++        final Bitmap bitmap;
++
++        Face(float[] corners, Bitmap bitmap) {
++            this.corners = corners;
++            this.bitmap = bitmap;
++        }
++    }
++
++    private final List<Face> faces = new ArrayList<>();
++    private final Paint paint = new Paint();
++    private float[] rotated = new float[0];
++    private float[] depth = new float[0];
++    private int[] order = new int[0];
++    private final float[] verts = new float[2 * (GRID + 1) * (GRID + 1)];
++
++    private float yaw = -0.5f;
++    private long lastFrame = 0;
++    private boolean dragging = false;
++    private float lastX;
++
++    public SkinView3D(Context context) {
++        this(context, null);
++    }
++
++    public SkinView3D(Context context, AttributeSet attrs) {
++        super(context, attrs);
++        paint.setFilterBitmap(false);
++        paint.setAntiAlias(false);
++        paint.setDither(false);
++    }
++
++    /** Sets the skin texture (64x64, 64x32 or HD multiples). Must be called on the UI thread. */
++    public void setSkin(Bitmap skin) {
++        if (skin == null || skin.getWidth() < 64) return;
++        List<Face> built = buildFaces(skin);
++        for (Face old : faces) old.bitmap.recycle();
++        faces.clear();
++        faces.addAll(built);
++        rotated = new float[faces.size() * 9];
++        depth = new float[faces.size()];
++        order = new int[faces.size()];
++        invalidate();
++    }
++
++    private List<Face> buildFaces(Bitmap skin) {
++        final float sc = skin.getWidth() / 64f;
++        final boolean legacy = skin.getHeight() * 2 == skin.getWidth();
++        final boolean slim = !legacy && isSlim(skin, sc);
++        final float armW = slim ? 3f : 4f;
++        final float armX = 4f + armW / 2f;
++        List<Face> out = new ArrayList<>();
++
++        // base layers (the player's right side is on the viewer's left)
++        addBox(out, skin, sc, 0, 28, 0, 8, 8, 8, 0, 0, 0f);
++        addBox(out, skin, sc, 0, 18, 0, 8, 12, 4, 16, 16, 0f);
++        addBox(out, skin, sc, -armX, 18, 0, armW, 12, 4, 40, 16, 0f);
++        addBox(out, skin, sc, armX, 18, 0, armW, 12, 4, legacy ? 40 : 32, legacy ? 16 : 48, 0f);
++        addBox(out, skin, sc, -2, 6, 0, 4, 12, 4, 0, 16, 0f);
++        addBox(out, skin, sc, 2, 6, 0, 4, 12, 4, legacy ? 0 : 16, legacy ? 16 : 48, 0f);
++
++        // overlay layers (hat, jacket, sleeves, pants)
++        final float inflate = 0.5f;
++        addBox(out, skin, sc, 0, 28, 0, 8, 8, 8, 32, 0, inflate);
++        if (!legacy) {
++            addBox(out, skin, sc, 0, 18, 0, 8, 12, 4, 16, 32, inflate);
++            addBox(out, skin, sc, -armX, 18, 0, armW, 12, 4, 40, 32, inflate);
++            addBox(out, skin, sc, armX, 18, 0, armW, 12, 4, 48, 48, inflate);
++            addBox(out, skin, sc, -2, 6, 0, 4, 12, 4, 0, 32, inflate);
++            addBox(out, skin, sc, 2, 6, 0, 4, 12, 4, 0, 48, inflate);
++        }
++        return out;
++    }
++
++    private boolean isSlim(Bitmap skin, float sc) {
++        int x = (int) (47 * sc);
++        int y = (int) (24 * sc);
++        if (x >= skin.getWidth() || y >= skin.getHeight()) return false;
++        return Color.alpha(skin.getPixel(x, y)) == 0;
++    }
++
++    private void addBox(List<Face> out, Bitmap skin, float sc,
++                        float cx, float cy, float cz, float w, float h, float d,
++                        float u, float v, float inflate) {
++        final float hw = w / 2f + inflate, hh = h / 2f + inflate, hd = d / 2f + inflate;
++        // front
++        addFace(out, skin, sc, u + d, v + d, w, h,
++                cx - hw, cy + hh, cz + hd, cx + hw, cy + hh, cz + hd, cx - hw, cy - hh, cz + hd);
++        // back
++        addFace(out, skin, sc, u + d + w + d, v + d, w, h,
++                cx + hw, cy + hh, cz - hd, cx - hw, cy + hh, cz - hd, cx + hw, cy - hh, cz - hd);
++        // right side (-x)
++        addFace(out, skin, sc, u, v + d, d, h,
++                cx - hw, cy + hh, cz - hd, cx - hw, cy + hh, cz + hd, cx - hw, cy - hh, cz - hd);
++        // left side (+x)
++        addFace(out, skin, sc, u + d + w, v + d, d, h,
++                cx + hw, cy + hh, cz + hd, cx + hw, cy + hh, cz - hd, cx + hw, cy - hh, cz + hd);
++        // top
++        addFace(out, skin, sc, u + d, v, w, d,
++                cx - hw, cy + hh, cz - hd, cx + hw, cy + hh, cz - hd, cx - hw, cy + hh, cz + hd);
++        // bottom
++        addFace(out, skin, sc, u + d + w, v, w, d,
++                cx - hw, cy - hh, cz + hd, cx + hw, cy - hh, cz + hd, cx - hw, cy - hh, cz - hd);
++    }
++
++    private void addFace(List<Face> out, Bitmap skin, float sc, float tx, float ty, float tw, float th,
++                         float... corners) {
++        int x = Math.round(tx * sc);
++        int y = Math.round(ty * sc);
++        int w = Math.max(1, Math.round(tw * sc));
++        int h = Math.max(1, Math.round(th * sc));
++        if (x < 0 || y < 0 || x + w > skin.getWidth() || y + h > skin.getHeight()) return;
++        out.add(new Face(corners, Bitmap.createBitmap(skin, x, y, w, h)));
++    }
++
++    @Override
++    protected void onDraw(Canvas canvas) {
++        super.onDraw(canvas);
++        final int count = faces.size();
++        if (count == 0) return;
++
++        long now = SystemClock.uptimeMillis();
++        if (lastFrame != 0 && !dragging) yaw += (now - lastFrame) * AUTO_SPEED;
++        lastFrame = now;
++
++        final float width = getWidth(), height = getHeight();
++        final float scale = Math.min(height / 36f, width / 22f);
++        final float cx = width / 2f, cy = height / 2f;
++        final float cosY = (float) Math.cos(yaw), sinY = (float) Math.sin(yaw);
++        final float cosP = (float) Math.cos(PITCH), sinP = (float) Math.sin(PITCH);
++
++        int visible = 0;
++        for (int i = 0; i < count; i++) {
++            float[] c = faces.get(i).corners;
++            for (int k = 0; k < 3; k++) {
++                float x = c[3 * k];
++                float y = c[3 * k + 1] - 16f;
++                float z = c[3 * k + 2];
++                float x1 = x * cosY + z * sinY;
++                float z1 = -x * sinY + z * cosY;
++                float y2 = y * cosP - z1 * sinP;
++                float z2 = y * sinP + z1 * cosP;
++                rotated[i * 9 + 3 * k] = x1;
++                rotated[i * 9 + 3 * k + 1] = y2;
++                rotated[i * 9 + 3 * k + 2] = z2;
++            }
++            int b = i * 9;
++            float ax = rotated[b + 3] - rotated[b], ay = rotated[b + 4] - rotated[b + 1];
++            float bx = rotated[b + 6] - rotated[b], by = rotated[b + 7] - rotated[b + 1];
++            float crossZ = ax * by - ay * bx;
++            if (crossZ < 0f) { // facing the camera
++                depth[i] = (rotated[b + 5] + rotated[b + 2] + rotated[b + 8]) / 3f;
++                // insertion sort by depth, farthest first
++                int pos = visible++;
++                while (pos > 0 && depth[order[pos - 1]] > depth[i]) {
++                    order[pos] = order[pos - 1];
++                    pos--;
++                }
++                order[pos] = i;
++            }
++        }
++
++        for (int n = 0; n < visible; n++) {
++            int i = order[n];
++            int b = i * 9;
++            float ax = rotated[b + 3] - rotated[b], ay = rotated[b + 4] - rotated[b + 1], az = rotated[b + 5] - rotated[b + 2];
++            float bx = rotated[b + 6] - rotated[b], by = rotated[b + 7] - rotated[b + 1], bz = rotated[b + 8] - rotated[b + 2];
++            int vi = 0;
++            for (int j = 0; j <= GRID; j++) {
++                float fv = j / (float) GRID;
++                for (int k = 0; k <= GRID; k++) {
++                    float fu = k / (float) GRID;
++                    float px = rotated[b] + fu * ax + fv * bx;
++                    float py = rotated[b + 1] + fu * ay + fv * by;
++                    float pz = rotated[b + 2] + fu * az + fv * bz;
++                    float s = CAMERA_DISTANCE / (CAMERA_DISTANCE - pz);
++                    verts[vi++] = cx + px * s * scale;
++                    verts[vi++] = cy - py * s * scale;
++                }
++            }
++            canvas.drawBitmapMesh(faces.get(i).bitmap, GRID, GRID, verts, 0, null, 0, paint);
++        }
++        postInvalidateOnAnimation();
++    }
++
++    @Override
++    public boolean onTouchEvent(MotionEvent event) {
++        switch (event.getActionMasked()) {
++            case MotionEvent.ACTION_DOWN:
++                dragging = true;
++                lastX = event.getX();
++                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
++                return true;
++            case MotionEvent.ACTION_MOVE:
++                yaw += (event.getX() - lastX) * 0.012f;
++                lastX = event.getX();
++                invalidate();
++                return true;
++            case MotionEvent.ACTION_UP:
++            case MotionEvent.ACTION_CANCEL:
++                dragging = false;
++                lastFrame = SystemClock.uptimeMillis();
++                return true;
++            default:
++                return super.onTouchEvent(event);
++        }
++    }
++}
+diff -ruN a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/utils/CryzenTheme.java b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/utils/CryzenTheme.java
+--- a/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/utils/CryzenTheme.java	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/utils/CryzenTheme.java	2026-10-24 20:15:53.505809860 +0000
+@@ -0,0 +1,58 @@
++package com.movtery.zalithlauncher.utils;
++
++import android.content.Context;
++import android.content.res.Configuration;
++import android.content.res.Resources;
++
++/**
++ * Violet / Dark / White theme selection.
++ * The chosen theme is applied as a resource qualifier on the activity resources
++ * (values-mcc998 = Dark, values-mcc999 = White, default values = Violet), so every
++ * color reference in layouts and drawables follows it without further changes.
++ */
++public final class CryzenTheme {
++    public static final int VIOLET = 0;
++    public static final int DARK = 1;
++    public static final int WHITE = 2;
++
++    private static final String PREFS = "cryzen_ui";
++    private static final String KEY_THEME = "theme";
++
++    // Unassigned mobile country codes used purely as theme selectors (valid range for the qualifier is 100-999).
++    private static final int MCC_DARK = 998;
++    private static final int MCC_WHITE = 999;
++
++    private CryzenTheme() {}
++
++    private static int mccFor(int theme) {
++        return theme == DARK ? MCC_DARK : MCC_WHITE;
++    }
++
++    public static int get(Context context) {
++        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_THEME, VIOLET);
++    }
++
++    public static void set(Context context, int theme) {
++        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY_THEME, theme).apply();
++    }
++
++    /** Wraps a base context so its resources use the selected theme. */
++    public static Context wrap(Context base) {
++        int theme = get(base);
++        if (theme == VIOLET) return base;
++        Configuration config = new Configuration(base.getResources().getConfiguration());
++        config.mcc = mccFor(theme);
++        return base.createConfigurationContext(config);
++    }
++
++    /** Re-applies the selected theme to an existing activity's resources. */
++    @SuppressWarnings("deprecation")
++    public static void apply(Context activity) {
++        int theme = get(activity);
++        if (theme == VIOLET) return;
++        Resources resources = activity.getResources();
++        Configuration config = new Configuration(resources.getConfiguration());
++        config.mcc = mccFor(theme);
++        resources.updateConfiguration(config, resources.getDisplayMetrics());
++    }
++}
+diff -ruN a/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/LauncherActivity.java b/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/LauncherActivity.java
+--- a/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/LauncherActivity.java	2026-10-24 20:15:53.746346764 +0000
++++ b/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/LauncherActivity.java	2026-10-24 20:15:53.512230399 +0000
+@@ -13,12 +13,16 @@
+ import android.text.method.LinkMovementMethod;
+ import android.text.util.Linkify;
+ import android.view.View;
++import android.view.ViewGroup;
++import android.view.animation.DecelerateInterpolator;
++import android.widget.PopupMenu;
+ import android.widget.Toast;
+ 
+ import androidx.activity.OnBackPressedCallback;
+ import androidx.activity.result.ActivityResultLauncher;
+ import androidx.activity.result.contract.ActivityResultContracts;
+ import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
+ import androidx.core.app.ActivityCompat;
+ import androidx.core.content.ContextCompat;
+ import androidx.fragment.app.Fragment;
+@@ -58,7 +62,6 @@
+ import com.movtery.zalithlauncher.feature.notice.CheckNewNotice;
+ import com.movtery.zalithlauncher.feature.notice.NoticeInfo;
+ import com.movtery.zalithlauncher.feature.update.UpdateUtils;
+-import com.movtery.zalithlauncher.feature.version.Version;
+ import com.movtery.zalithlauncher.feature.version.VersionsManager;
+ import com.movtery.zalithlauncher.feature.version.install.GameInstaller;
+ import com.movtery.zalithlauncher.feature.version.install.InstallTask;
+@@ -71,7 +74,13 @@
+ import com.movtery.zalithlauncher.ui.activity.ErrorActivity;
+ import com.movtery.zalithlauncher.ui.dialog.EditTextDialog;
+ import com.movtery.zalithlauncher.ui.dialog.TipDialog;
++import com.movtery.zalithlauncher.feature.version.Version;
+ import com.movtery.zalithlauncher.ui.fragment.AccountFragment;
++import com.movtery.zalithlauncher.ui.fragment.AboutFragment;
++import com.movtery.zalithlauncher.ui.fragment.ControlButtonFragment;
++import com.movtery.zalithlauncher.ui.fragment.FilesFragment;
++import com.movtery.zalithlauncher.ui.fragment.ControlPageFragment;
++import com.movtery.zalithlauncher.utils.path.PathManager;
+ import com.movtery.zalithlauncher.ui.fragment.BaseFragment;
+ import com.movtery.zalithlauncher.ui.fragment.DownloadFragment;
+ import com.movtery.zalithlauncher.ui.fragment.DownloadModFragment;
+@@ -355,6 +364,7 @@
+ 
+         processFragment();
+         processViews();
++        initCryzenSidebar();
+ 
+         mRequestNotificationPermissionLauncher = registerForActivityResult(
+                 new ActivityResultContracts.RequestPermission(),
+@@ -417,6 +427,111 @@
+         }
+     }
+ 
++    // ---- CryzenLauncher sidebar navigation ----
++    private void initCryzenSidebar() {
++        binding.navHome.setOnClickListener(v -> navigateTo(MainMenuFragment.class, MainMenuFragment.TAG, null));
++        binding.navAccount.setOnClickListener(v -> navigateTo(AccountFragment.class, AccountFragment.TAG, null));
++        binding.navMod.setOnClickListener(v -> navigateTo(DownloadFragment.class, DownloadFragment.TAG, null));
++        binding.navControl.setOnClickListener(v -> navigateTo(ControlPageFragment.class, ControlPageFragment.TAG, null));
++        binding.navSettings.setOnClickListener(v -> navigateTo(SettingsFragment.class, SettingsFragment.TAG, null));
++        binding.czAppIcon.setOnClickListener(this::showToolsMenu);
++
++        getSupportFragmentManager().registerFragmentLifecycleCallbacks(new FragmentManager.FragmentLifecycleCallbacks() {
++            @Override
++            public void onFragmentResumed(@NonNull FragmentManager fm, @NonNull Fragment f) {
++                updateNavSelection(f);
++            }
++        }, false);
++    }
++
++    private void navigateTo(Class<? extends Fragment> fragmentClass, String tag, @Nullable Bundle bundle) {
++        Fragment current = getCurrentFragment();
++        if (current == null || fragmentClass.isInstance(current)) return;
++        ZHTools.swapFragmentWithAnim(current, fragmentClass, tag, bundle);
++    }
++
++    private void updateNavSelection(Fragment fragment) {
++        View selected = null;
++        if (fragment instanceof MainMenuFragment) selected = binding.navHome;
++        else if (fragment instanceof AccountFragment) selected = binding.navAccount;
++        else if (fragment instanceof DownloadFragment) selected = binding.navMod;
++        else if (fragment instanceof ControlPageFragment || fragment instanceof ControlButtonFragment) selected = binding.navControl;
++        else if (fragment instanceof SettingsFragment) selected = binding.navSettings;
++        // Sub-pages (version list, downloads, files...) keep the highlight of the page they came from.
++        if (selected == null) return;
++        View[] items = {binding.navHome, binding.navAccount, binding.navMod, binding.navControl, binding.navSettings};
++        for (View item : items) item.setSelected(item == selected);
++        if (selected != lastNavSelected) {
++            lastNavSelected = selected;
++            moveNavHighlight(selected);
++        }
++    }
++
++    private View lastNavSelected = null;
++    private boolean navHighlightPlaced = false;
++
++    /** One gradient pill behind the icons that glides to the selected item. */
++    private void moveNavHighlight(View item) {
++        final View highlight = binding.czNavHighlight;
++        final View icon = ((ViewGroup) item).getChildAt(0);
++        binding.czSidebar.post(() -> {
++            float targetY = item.getTop() + icon.getTop() + (icon.getHeight() - highlight.getHeight()) / 2f;
++            float targetX = (binding.czSidebar.getWidth() - highlight.getWidth()) / 2f;
++            highlight.setTranslationX(targetX);
++            if (!navHighlightPlaced) {
++                highlight.setTranslationY(targetY);
++                highlight.setVisibility(View.VISIBLE);
++                navHighlightPlaced = true;
++            } else {
++                highlight.animate().translationY(targetY)
++                        .setDuration(300)
++                        .setInterpolator(new DecelerateInterpolator(1.5f))
++                        .start();
++            }
++        });
++    }
++
++    /** Tools that used to live in the old top bar / Home menu; reachable from the app icon. */
++    private void showToolsMenu(View anchor) {
++        PopupMenu menu = new PopupMenu(this, anchor);
++        menu.getMenu().add(0, 3, 2, R.string.main_open_main_dir);
++        menu.getMenu().add(0, 4, 3, R.string.main_install_jar_file);
++        menu.getMenu().add(0, 5, 4, R.string.main_share_logs);
++        int currentTheme = com.movtery.zalithlauncher.utils.CryzenTheme.get(this);
++        menu.getMenu().add(1, 10, 5, R.string.cz_theme_violet).setCheckable(true).setChecked(currentTheme == com.movtery.zalithlauncher.utils.CryzenTheme.VIOLET);
++        menu.getMenu().add(1, 11, 6, R.string.cz_theme_dark).setCheckable(true).setChecked(currentTheme == com.movtery.zalithlauncher.utils.CryzenTheme.DARK);
++        menu.getMenu().add(1, 12, 7, R.string.cz_theme_white).setCheckable(true).setChecked(currentTheme == com.movtery.zalithlauncher.utils.CryzenTheme.WHITE);
++        menu.getMenu().setGroupCheckable(1, true, true);
++        menu.setOnMenuItemClickListener(item -> {
++            Fragment current = getCurrentFragment();
++            switch (item.getItemId()) {
++                case 3:
++                    if (current != null) {
++                        Bundle bundle = new Bundle();
++                        bundle.putString(FilesFragment.BUNDLE_LIST_PATH, PathManager.DIR_GAME_HOME);
++                        ZHTools.swapFragmentWithAnim(current, FilesFragment.class, FilesFragment.TAG, bundle);
++                    }
++                    return true;
++                case 4:
++                    if (ProgressKeeper.getTaskCount() == 0) Tools.installMod(this, false);
++                    else Toast.makeText(this, R.string.tasks_ongoing, Toast.LENGTH_LONG).show();
++                    return true;
++                case 5:
++                    ZHTools.shareLogs(this);
++                    return true;
++                case 10:
++                case 11:
++                case 12:
++                    com.movtery.zalithlauncher.utils.CryzenTheme.set(this, item.getItemId() - 10);
++                    recreate();
++                    return true;
++                default:
++                    return false;
++            }
++        });
++        menu.show();
++    }
++
+     private void processViews() {
+         refreshBackground();
+         setPageOpacity(AllSettings.getPageOpacity().getValue());
+diff -ruN a/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/fragments/MainMenuFragment.java b/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/fragments/MainMenuFragment.java
+--- a/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/fragments/MainMenuFragment.java	2026-10-24 20:15:53.759919423 +0000
++++ b/ZalithLauncher/src/main/java/net/kdt/pojavlaunch/fragments/MainMenuFragment.java	2026-10-24 20:15:53.755456264 +0000
+@@ -2,12 +2,21 @@
+ 
+ import static com.movtery.zalithlauncher.event.single.RefreshVersionsEvent.MODE.END;
+ 
++import android.content.Context;
++import android.content.SharedPreferences;
++import android.graphics.Bitmap;
++import android.graphics.BitmapFactory;
++import android.graphics.Matrix;
++import android.net.Uri;
++import android.view.animation.DecelerateInterpolator;
+ import android.os.Bundle;
+ import android.view.LayoutInflater;
+ import android.view.View;
+ import android.view.ViewGroup;
+ import android.widget.Toast;
+ 
++import androidx.activity.result.ActivityResultLauncher;
++import androidx.activity.result.contract.ActivityResultContracts;
+ import androidx.annotation.NonNull;
+ import androidx.annotation.Nullable;
+ 
+@@ -30,14 +39,21 @@
+ import com.movtery.zalithlauncher.ui.fragment.FragmentWithAnim;
+ import com.movtery.zalithlauncher.ui.fragment.VersionManagerFragment;
+ import com.movtery.zalithlauncher.ui.fragment.VersionsListFragment;
+-import com.movtery.zalithlauncher.ui.subassembly.account.AccountViewWrapper;
++import com.movtery.zalithlauncher.ui.subassembly.account.AccountPillWrapper;
++import com.movtery.zalithlauncher.ui.fragment.VideoSettingsPageFragment;
+ import com.movtery.zalithlauncher.utils.path.PathManager;
+ import com.movtery.zalithlauncher.utils.ZHTools;
+ import com.movtery.zalithlauncher.utils.anim.ViewAnimUtils;
+ 
++import net.kdt.pojavlaunch.JMinecraftVersionList;
+ import net.kdt.pojavlaunch.Tools;
+ import net.kdt.pojavlaunch.progresskeeper.ProgressKeeper;
+ 
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.InputStream;
++import java.io.OutputStream;
++
+ import org.greenrobot.eventbus.EventBus;
+ import org.greenrobot.eventbus.Subscribe;
+ import org.greenrobot.eventbus.ThreadMode;
+@@ -45,7 +61,13 @@
+ public class MainMenuFragment extends FragmentWithAnim {
+     public static final String TAG = "MainMenuFragment";
+     private FragmentLauncherBinding binding;
+-    private AccountViewWrapper accountViewWrapper;
++    private AccountPillWrapper accountViewWrapper;
++
++    private static final String UI_PREFS = "cryzen_ui";
++    private static final String KEY_BANNER_PATH = "banner_path";
++    private static final String KEY_BANNER_ROTATION = "banner_rotation";
++    private final ActivityResultLauncher<String> bannerPicker =
++            registerForActivityResult(new ActivityResultContracts.GetContent(), this::onBannerPicked);
+ 
+     public MainMenuFragment() {
+         super(R.layout.fragment_launcher);
+@@ -55,27 +77,19 @@
+     @Override
+     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+         binding = FragmentLauncherBinding.inflate(getLayoutInflater());
+-        accountViewWrapper = new AccountViewWrapper(this, binding.viewAccount);
++        accountViewWrapper = new AccountPillWrapper(this, binding.accountPill, binding.skinView);
+         accountViewWrapper.refreshAccountInfo();
+         return binding.getRoot();
+     }
+ 
+     @Override
+     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+-        binding.aboutText.setText(InfoCenter.replaceName(requireActivity(), R.string.about_tab));
+-        binding.aboutButton.setOnClickListener(v -> ZHTools.swapFragmentWithAnim(this, AboutFragment.class, AboutFragment.TAG, null));
+-        binding.customControlButton.setOnClickListener(v -> ZHTools.swapFragmentWithAnim(this, ControlButtonFragment.class, ControlButtonFragment.TAG, null));
+-        binding.openMainDirButton.setOnClickListener(v -> {
+-            Bundle bundle = new Bundle();
+-            bundle.putString(FilesFragment.BUNDLE_LIST_PATH, PathManager.DIR_GAME_HOME);
+-            ZHTools.swapFragmentWithAnim(this, FilesFragment.class, FilesFragment.TAG, bundle);
+-        });
+-        binding.installJarButton.setOnClickListener(v -> runInstallerWithConfirmation(false));
+-        binding.installJarButton.setOnLongClickListener(v -> {
+-            runInstallerWithConfirmation(true);
+-            return true;
+-        });
+-        binding.shareLogsButton.setOnClickListener(v -> ZHTools.shareLogs(requireActivity()));
++        binding.btnVideoSetting.setOnClickListener(v ->
++                ZHTools.swapFragmentWithAnim(this, VideoSettingsPageFragment.class, VideoSettingsPageFragment.TAG, null));
++
++        binding.btnBannerPick.setOnClickListener(v -> bannerPicker.launch("image/*"));
++        binding.btnBannerOrientation.setOnClickListener(v -> rotateBanner());
++        loadBanner();
+ 
+         binding.version.setOnClickListener(v -> {
+             if (!isTaskRunning()) {
+@@ -95,7 +109,15 @@
+             }
+         });
+ 
+-        binding.playButton.setOnClickListener(v -> EventBus.getDefault().post(new LaunchGameEvent()));
++        binding.playButton.setOnClickListener(v -> {
++            if (VersionsManager.INSTANCE.getCurrentVersion() == null) {
++                // nothing installed yet: the main button is "UNDUH" and leads to the installer
++                ZHTools.swapFragmentWithAnim(this, VersionsListFragment.class, VersionsListFragment.TAG, null);
++            } else {
++                // PLAY, or UNDUH for missing files: the launch pipeline downloads what is missing first
++                EventBus.getDefault().post(new LaunchGameEvent());
++            }
++        });
+ 
+         binding.versionName.setSelected(true);
+         binding.versionInfo.setSelected(true);
+@@ -111,20 +133,81 @@
+             binding.versionName.setText(version.getVersionName());
+             VersionInfo versionInfo = version.getVersionInfo();
+             if (versionInfo != null) {
+-                binding.versionInfo.setText(versionInfo.getInfoString());
+-                versionInfoVisibility = View.VISIBLE;
+-            } else versionInfoVisibility = View.GONE;
++                VersionInfo.LoaderInfo[] loaders = versionInfo.getLoaderInfo();
++                String loaderName = (loaders != null && loaders.length > 0 && !loaders[0].getName().trim().isEmpty())
++                        ? loaders[0].getName() : "Vanilla";
++                binding.chipLoader.setText(loaderName);
++                binding.chipMc.setText(versionInfo.getMinecraftVersion());
++                binding.chipLoader.setVisibility(View.VISIBLE);
++                binding.chipMc.setVisibility(View.VISIBLE);
++            } else {
++                binding.chipLoader.setVisibility(View.GONE);
++                binding.chipMc.setVisibility(View.GONE);
++            }
++            versionInfoVisibility = View.GONE;
++            updatePlayState(version);
++            loadJavaChip(version);
+ 
+             new VersionIconUtils(version).start(binding.versionIcon);
+             binding.managerProfileButton.setVisibility(View.VISIBLE);
+         } else {
+             binding.versionName.setText(R.string.version_no_versions);
++            binding.chipLoader.setVisibility(View.GONE);
++            binding.chipMc.setVisibility(View.GONE);
++            binding.chipJava.setVisibility(View.GONE);
+             binding.managerProfileButton.setVisibility(View.GONE);
++            updatePlayState(null);
+             versionInfoVisibility = View.GONE;
+         }
+         binding.versionInfo.setVisibility(versionInfoVisibility);
+     }
+ 
++    /** True when the selected instance has its version json and jar (or a loader that supplies them). */
++    private boolean isVersionReady(@Nullable Version version) {
++        if (version == null || !version.isValid()) return false;
++        File dir = version.getVersionPath();
++        String name = version.getVersionName();
++        if (!new File(dir, name + ".json").exists()) return false;
++        if (new File(dir, name + ".jar").exists()) return true;
++        VersionInfo info = version.getVersionInfo();
++        return info != null && info.getLoaderInfo() != null && info.getLoaderInfo().length > 0;
++    }
++
++    /** The main button follows the real state of the selected instance: PLAY when ready, UNDUH otherwise. */
++    private void updatePlayState(@Nullable Version version) {
++        binding.playButton.setText(isVersionReady(version) ? R.string.cz_play : R.string.cz_download);
++    }
++
++    /** Shows the Java version the selected instance needs (read from its version json, off the UI thread). */
++    private void loadJavaChip(@Nullable Version version) {
++        final FragmentLauncherBinding currentBinding = binding;
++        if (version == null) {
++            currentBinding.chipJava.setVisibility(View.GONE);
++            return;
++        }
++        new Thread(() -> {
++            int major = 8;
++            try {
++                JMinecraftVersionList.Version info = Tools.getVersionInfo(version);
++                if (info != null && info.javaVersion != null && info.javaVersion.majorVersion > 0) {
++                    major = info.javaVersion.majorVersion;
++                }
++            } catch (Throwable t) {
++                major = 0;
++            }
++            final int result = major;
++            TaskExecutors.runInUIThread(() -> {
++                if (!isAdded() || currentBinding != binding) return;
++                if (result > 0) {
++                    currentBinding.chipJava.setText("Java " + result);
++                    currentBinding.chipJava.setVisibility(View.VISIBLE);
++                } else {
++                    currentBinding.chipJava.setVisibility(View.GONE);
++                }
++            });
++        }).start();
++    }
++
+     @Subscribe()
+     public void event(RefreshVersionsEvent event) {
+         if (event.getMode() == END) {
+@@ -141,6 +224,7 @@
+     public void onStart() {
+         super.onStart();
+         EventBus.getDefault().register(this);
++        refreshCurrentVersion();
+     }
+ 
+     @Override
+@@ -149,24 +233,127 @@
+         EventBus.getDefault().unregister(this);
+     }
+ 
+-    private void runInstallerWithConfirmation(boolean isCustomArgs) {
+-        if (ProgressKeeper.getTaskCount() == 0)
+-            Tools.installMod(requireActivity(), isCustomArgs);
+-        else
+-            Toast.makeText(requireContext(), R.string.tasks_ongoing, Toast.LENGTH_LONG).show();
++    private boolean bannerAnimating = false;
++
++    /** Scale that keeps a quarter-turned banner covering the whole (landscape) panel. */
++    private float bannerCoverScale(int quarterTurns) {
++        if (quarterTurns % 2 == 0) return 1f;
++        float w = binding.bannerContainer.getWidth();
++        float h = binding.bannerContainer.getHeight();
++        if (w <= 0 || h <= 0) return 1f;
++        return Math.max(w / h, h / w);
++    }
++
++    private void applyBannerRotation(int quarterTurns) {
++        float scale = bannerCoverScale(quarterTurns);
++        binding.bannerImage.setRotation(quarterTurns * 90f);
++        binding.bannerImage.setScaleX(scale);
++        binding.bannerImage.setScaleY(scale);
++    }
++
++    /** Smoothly turns the banner a quarter turn (rotation + zoom animate together) and remembers it. */
++    private void rotateBanner() {
++        if (bannerAnimating) return;
++        SharedPreferences prefs = requireContext().getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE);
++        final int current = prefs.getInt(KEY_BANNER_ROTATION, 0);
++        final int next = (current + 1) % 4;
++        prefs.edit().putInt(KEY_BANNER_ROTATION, next).apply();
++        final float scale = bannerCoverScale(next);
++        bannerAnimating = true;
++        binding.bannerImage.animate()
++                .rotation(current * 90f + 90f)
++                .scaleX(scale)
++                .scaleY(scale)
++                .setDuration(520)
++                .setInterpolator(new DecelerateInterpolator(1.6f))
++                .withEndAction(() -> {
++                    applyBannerRotation(next);
++                    bannerAnimating = false;
++                })
++                .start();
++    }
++
++    private void onBannerPicked(@Nullable Uri uri) {
++        if (uri == null) return;
++        final Context context = requireContext().getApplicationContext();
++        new Thread(() -> {
++            try {
++                File target = new File(context.getFilesDir(), "cz_banner.img");
++                try (InputStream in = context.getContentResolver().openInputStream(uri);
++                     OutputStream out = new FileOutputStream(target)) {
++                    if (in == null) throw new IllegalStateException("Cannot open the selected image");
++                    byte[] buffer = new byte[16384];
++                    int read;
++                    while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
++                }
++                context.getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE).edit()
++                        .putString(KEY_BANNER_PATH, target.getAbsolutePath())
++                        .putInt(KEY_BANNER_ROTATION, 0)
++                        .apply();
++                loadBanner();
++            } catch (Exception e) {
++                TaskExecutors.runInUIThread(() ->
++                        Toast.makeText(context, R.string.cz_banner_load_failed, Toast.LENGTH_SHORT).show());
++            }
++        }).start();
++    }
++
++    /** Decodes the saved banner (downsampled, rotated by the saved quarter-turns) and shows it. */
++    private void loadBanner() {
++        final Context context = getContext();
++        if (context == null) return;
++        final FragmentLauncherBinding currentBinding = binding;
++        new Thread(() -> {
++            SharedPreferences prefs = context.getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE);
++            String path = prefs.getString(KEY_BANNER_PATH, null);
++            int rotation = prefs.getInt(KEY_BANNER_ROTATION, 0);
++            Bitmap bitmap = null;
++            boolean failed = false;
++            if (path != null && new File(path).exists()) {
++                try {
++                    BitmapFactory.Options bounds = new BitmapFactory.Options();
++                    bounds.inJustDecodeBounds = true;
++                    BitmapFactory.decodeFile(path, bounds);
++                    int sample = 1;
++                    while (bounds.outWidth / sample > 2400 || bounds.outHeight / sample > 2400) sample *= 2;
++                    BitmapFactory.Options options = new BitmapFactory.Options();
++                    options.inSampleSize = sample;
++                    bitmap = BitmapFactory.decodeFile(path, options);
++                    if (bitmap == null) failed = true;
++
++                } catch (Throwable t) {
++                    bitmap = null;
++                    failed = true;
++                }
++            }
++            final Bitmap result = bitmap;
++            final boolean loadFailed = failed;
++            final int rotationState = rotation;
++            TaskExecutors.runInUIThread(() -> {
++                if (!isAdded() || currentBinding != binding) return;
++                currentBinding.bannerImage.setImageBitmap(result);
++                currentBinding.bannerContainer.post(() -> {
++                    if (isAdded() && currentBinding == binding) applyBannerRotation(rotationState);
++                });
++                boolean hasBanner = result != null;
++                currentBinding.btnBannerOrientation.setEnabled(hasBanner);
++                currentBinding.btnBannerOrientation.setAlpha(hasBanner ? 1f : 0.45f);
++                if (loadFailed) Toast.makeText(context, R.string.cz_banner_load_failed, Toast.LENGTH_SHORT).show();
++            });
++        }).start();
+     }
+ 
+     @Override
+     public void slideIn(AnimPlayer animPlayer) {
+-        animPlayer.apply(new AnimPlayer.Entry(binding.launcherMenu, Animations.BounceInDown))
+-                .apply(new AnimPlayer.Entry(binding.playLayout, Animations.BounceInLeft))
+-                .apply(new AnimPlayer.Entry(binding.playButtonsLayout, Animations.BounceEnlarge));
++        animPlayer.apply(new AnimPlayer.Entry(binding.accountPill.getRoot(), Animations.BounceInDown))
++                .apply(new AnimPlayer.Entry(binding.skinPanel, Animations.BounceInLeft))
++                .apply(new AnimPlayer.Entry(binding.playLayout, Animations.BounceEnlarge));
+     }
+ 
+     @Override
+     public void slideOut(AnimPlayer animPlayer) {
+-        animPlayer.apply(new AnimPlayer.Entry(binding.launcherMenu, Animations.FadeOutUp))
+-                .apply(new AnimPlayer.Entry(binding.playLayout, Animations.FadeOutRight))
+-                .apply(new AnimPlayer.Entry(binding.playButtonsLayout, Animations.BounceShrink));
++        animPlayer.apply(new AnimPlayer.Entry(binding.accountPill.getRoot(), Animations.FadeOutUp))
++                .apply(new AnimPlayer.Entry(binding.skinPanel, Animations.FadeOutRight))
++                .apply(new AnimPlayer.Entry(binding.playLayout, Animations.BounceShrink));
+     }
+ }
+diff -ruN a/ZalithLauncher/src/main/res/color/cz_nav_text.xml b/ZalithLauncher/src/main/res/color/cz_nav_text.xml
+--- a/ZalithLauncher/src/main/res/color/cz_nav_text.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/color/cz_nav_text.xml	2026-10-24 20:15:53.764189766 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_selected="true" android:color="#FFFFFF" />
++    <item android:color="#D9CCFF" />
++</selector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_banner_bg.xml b/ZalithLauncher/src/main/res/drawable/cz_banner_bg.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_banner_bg.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_banner_bg.xml	2026-10-24 20:15:53.769648966 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="315" android:startColor="@color/cz_violet" android:endColor="@color/cz_violet_mid" />
++    <corners android:radius="34dp" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_button_primary.xml b/ZalithLauncher/src/main/res/drawable/cz_button_primary.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_button_primary.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_button_primary.xml	2026-10-24 20:15:53.773950906 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="0" android:startColor="#5B2BB8" android:endColor="#9B6BFF" />
++    <corners android:radius="26dp" />
++    <stroke android:width="1dp" android:color="@color/cz_glow" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_chip.xml b/ZalithLauncher/src/main/res/drawable/cz_chip.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_chip.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_chip.xml	2026-10-24 20:15:53.778253169 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="0" android:startColor="@color/cz_violet_light" android:endColor="@color/cz_glow" />
++    <corners android:radius="10dp" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_ic_account.xml b/ZalithLauncher/src/main/res/drawable/cz_ic_account.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_ic_account.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_ic_account.xml	2026-10-24 20:15:53.782282286 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M12,12c2.21,0 4,-1.79 4,-4s-1.79,-4 -4,-4 -4,1.79 -4,4 1.79,4 4,4zM12,14c-2.67,0 -8,1.34 -8,4v2h16v-2c0,-2.66 -5.33,-4 -8,-4z"/>
++</vector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_ic_chevron.xml b/ZalithLauncher/src/main/res/drawable/cz_ic_chevron.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_ic_chevron.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_ic_chevron.xml	2026-10-24 20:15:53.786733002 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M7.41,8.59L12,13.17l4.59,-4.58L18,10l-6,6 -6,-6z"/>
++</vector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_ic_control.xml b/ZalithLauncher/src/main/res/drawable/cz_ic_control.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_ic_control.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_ic_control.xml	2026-10-24 20:15:53.790826023 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M21.58,16.09l-1.09,-7.66C20.21,6.46 18.52,5 16.53,5H7.47C5.48,5 3.79,6.46 3.51,8.43l-1.09,7.66C2.2,17.63 3.39,19 4.94,19h0c0.68,0 1.32,-0.27 1.8,-0.75L9,16h6l2.25,2.25c0.48,0.48 1.13,0.75 1.8,0.75h0c1.56,0 2.75,-1.37 2.53,-2.91zM11,11H9v2H8v-2H6v-1h2V8h1v2h2v1zM15,10c-0.55,0 -1,-0.45 -1,-1s0.45,-1 1,-1 1,0.45 1,1 -0.45,1 -1,1zM17,13c-0.55,0 -1,-0.45 -1,-1s0.45,-1 1,-1 1,0.45 1,1 -0.45,1 -1,1z"/>
++</vector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_ic_image.xml b/ZalithLauncher/src/main/res/drawable/cz_ic_image.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_ic_image.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_ic_image.xml	2026-10-24 20:15:53.794750057 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M21,19V5c0,-1.1 -0.9,-2 -2,-2H5c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2zM8.5,13.5l2.5,3.01L14.5,12l4.5,6H5l3.5,-4.5z"/>
++</vector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_ic_mod.xml b/ZalithLauncher/src/main/res/drawable/cz_ic_mod.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_ic_mod.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_ic_mod.xml	2026-10-24 20:15:53.798981012 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M20.5,11H19V7c0,-1.1 -0.9,-2 -2,-2h-4V3.5C13,2.12 11.88,1 10.5,1S8,2.12 8,3.5V5H4c-1.1,0 -1.99,0.9 -1.99,2v3.8H3.5c1.49,0 2.7,1.21 2.7,2.7s-1.21,2.7 -2.7,2.7H2V20c0,1.1 0.9,2 2,2h3.8v-1.5c0,-1.49 1.21,-2.7 2.7,-2.7 1.49,0 2.7,1.21 2.7,2.7V22H17c1.1,0 2,-0.9 2,-2v-4h1.5c1.38,0 2.5,-1.12 2.5,-2.5S21.88,11 20.5,11z"/>
++</vector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_ic_rotate.xml b/ZalithLauncher/src/main/res/drawable/cz_ic_rotate.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_ic_rotate.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_ic_rotate.xml	2026-10-24 20:15:53.802850336 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M16.48,2.52c3.27,1.55 5.61,4.72 5.97,8.48h1.5C23.44,4.84 18.29,0 12,0l-0.66,0.03 3.81,3.81 1.33,-1.32zM10.23,1.75c-0.59,-0.59 -1.54,-0.59 -2.12,0L1.75,8.11c-0.59,0.59 -0.59,1.54 0,2.12l12.02,12.02c0.59,0.59 1.54,0.59 2.12,0l6.36,-6.36c0.59,-0.59 0.59,-1.54 0,-2.12L10.23,1.75zM14.83,21.19L2.81,9.17l6.36,-6.36 12.02,12.02 -6.36,6.36zM7.52,21.48C4.25,19.94 1.91,16.76 1.55,13L0.05,13C0.56,19.16 5.71,24 12,24l0.66,-0.03 -3.81,-3.81 -1.33,1.32z"/>
++</vector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_icon_button.xml b/ZalithLauncher/src/main/res/drawable/cz_icon_button.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_icon_button.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_icon_button.xml	2026-10-24 20:15:53.806743525 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="315" android:startColor="@color/cz_violet_light" android:endColor="@color/cz_violet_mid" />
++    <corners android:radius="14dp" />
++    <stroke android:width="2dp" android:color="@color/cz_glow" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_nav_icon_bg.xml b/ZalithLauncher/src/main/res/drawable/cz_nav_icon_bg.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_nav_icon_bg.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_nav_icon_bg.xml	2026-10-24 20:15:53.810698120 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="@android:color/transparent" />
++    <corners android:radius="18dp" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_nav_pill.xml b/ZalithLauncher/src/main/res/drawable/cz_nav_pill.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_nav_pill.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_nav_pill.xml	2026-10-24 20:15:53.814660253 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="0" android:startColor="#7F00FF" android:endColor="#2851A3" />
++    <corners android:radius="18dp" />
++    <stroke android:width="2dp" android:color="#C9A6FF" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_panel.xml b/ZalithLauncher/src/main/res/drawable/cz_panel.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_panel.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_panel.xml	2026-10-24 20:15:53.818479833 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="@color/cz_violet" />
++    <corners android:radius="34dp" />
++    <stroke android:width="3dp" android:color="@color/cz_outline" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_panel_glass.xml b/ZalithLauncher/src/main/res/drawable/cz_panel_glass.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_panel_glass.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_panel_glass.xml	2026-10-24 20:15:53.822796164 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="0" android:startColor="@color/cz_glass_start" android:endColor="@color/cz_glass_end" />
++    <corners android:radius="24dp" />
++    <stroke android:width="2dp" android:color="@color/cz_outline" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_pill.xml b/ZalithLauncher/src/main/res/drawable/cz_pill.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_pill.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_pill.xml	2026-10-24 20:15:53.826671308 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="0" android:startColor="@color/cz_violet_mid" android:endColor="@color/cz_blue" />
++    <corners android:radius="22dp" />
++    <stroke android:width="1dp" android:color="@color/cz_glow" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_sidebar_bg.xml b/ZalithLauncher/src/main/res/drawable/cz_sidebar_bg.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_sidebar_bg.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_sidebar_bg.xml	2026-10-24 20:15:53.830494706 +0000
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="270" android:startColor="@color/cz_sidebar_top" android:endColor="@color/cz_sidebar_bottom" />
++    <corners android:topRightRadius="28dp" android:bottomRightRadius="28dp" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_skin_panel.xml b/ZalithLauncher/src/main/res/drawable/cz_skin_panel.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_skin_panel.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_skin_panel.xml	2026-10-24 20:15:53.834306861 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="@color/cz_skin_fill" />
++    <corners android:radius="22dp" />
++    <stroke android:width="4dp" android:color="@color/cz_outline" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_tab_chip_bg.xml b/ZalithLauncher/src/main/res/drawable/cz_tab_chip_bg.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_tab_chip_bg.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_tab_chip_bg.xml	2026-10-24 20:15:53.838162615 +0000
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_selected="true">
++        <shape android:shape="rectangle">
++            <gradient android:angle="0" android:startColor="#7F00FF" android:endColor="#2851A3" />
++            <corners android:radius="18dp" />
++            <stroke android:width="1dp" android:color="#C9A6FF" />
++        </shape>
++    </item>
++    <item>
++        <shape android:shape="rectangle">
++            <solid android:color="@android:color/transparent" />
++            <corners android:radius="18dp" />
++        </shape>
++    </item>
++</selector>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/cz_tab_indicator.xml b/ZalithLauncher/src/main/res/drawable/cz_tab_indicator.xml
+--- a/ZalithLauncher/src/main/res/drawable/cz_tab_indicator.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/drawable/cz_tab_indicator.xml	2026-10-24 20:15:53.842077477 +0000
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
++    <item
++        android:left="4dp"
++        android:top="3dp"
++        android:right="4dp"
++        android:bottom="3dp">
++        <shape android:shape="rectangle">
++            <gradient android:angle="0" android:startColor="#7F00FF" android:endColor="#2851A3" />
++            <corners android:radius="16dp" />
++            <stroke android:width="1dp" android:color="#C9A6FF" />
++        </shape>
++    </item>
++</layer-list>
+diff -ruN a/ZalithLauncher/src/main/res/drawable/ic_launcher_background.xml b/ZalithLauncher/src/main/res/drawable/ic_launcher_background.xml
+--- a/ZalithLauncher/src/main/res/drawable/ic_launcher_background.xml	2026-10-24 20:15:54.094346785 +0000
++++ b/ZalithLauncher/src/main/res/drawable/ic_launcher_background.xml	2026-10-24 20:15:53.845966116 +0000
+@@ -1,9 +1,4 @@
+-<shape xmlns:android="http://schemas.android.com/apk/res/android">
+-    <gradient
+-        android:angle="90"
+-        android:endColor="#FFD2C1"
+-        android:centerColor="@android:color/white"
+-        android:startColor="#C3EBFF"
+-        android:type="linear" />
+-    <size android:height="3dp" />
+-</shape>
+\ No newline at end of file
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <gradient android:angle="315" android:startColor="#1B0940" android:endColor="#0B0426" />
++</shape>
+diff -ruN a/ZalithLauncher/src/main/res/layout/activity_launcher.xml b/ZalithLauncher/src/main/res/layout/activity_launcher.xml
+--- a/ZalithLauncher/src/main/res/layout/activity_launcher.xml	2026-10-24 20:15:54.103843476 +0000
++++ b/ZalithLauncher/src/main/res/layout/activity_launcher.xml	2026-10-24 20:15:54.099711592 +0000
+@@ -3,6 +3,7 @@
+     xmlns:tools="http://schemas.android.com/tools"
+     android:layout_width="match_parent"
+     android:layout_height="match_parent"
++    android:background="@color/background_app"
+     tools:ignore="ContentDescription">
+ 
+     <ImageView
+@@ -15,6 +16,7 @@
+         android:layout_width="match_parent"
+         android:layout_height="@dimen/_40sdp"
+         android:background="@color/background_menu_top"
++        android:visibility="gone"
+         app:layout_constraintTop_toTopOf="parent">
+ 
+         <com.movtery.zalithlauncher.ui.view.AnimTextView
+@@ -61,21 +63,240 @@
+ 
+     </androidx.constraintlayout.widget.ConstraintLayout>
+ 
++
++    <!-- CryzenLauncher permanent sidebar: background layer, sliding highlight, then the items -->
++    <View
++        android:id="@+id/cz_sidebar_bg"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:background="@drawable/cz_sidebar_bg"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent"
++        app:layout_constraintWidth_percent="0.07" />
++
++    <View
++        android:id="@+id/cz_nav_highlight"
++        android:layout_width="48dp"
++        android:layout_height="34dp"
++        android:background="@drawable/cz_nav_pill"
++        android:visibility="invisible"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent" />
++
++    <LinearLayout
++        android:id="@+id/cz_sidebar"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        app:layout_constraintWidth_percent="0.07"
++        android:orientation="vertical"
++        android:paddingTop="10dp"
++        android:paddingBottom="10dp"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent">
++
++        <ImageView
++            android:id="@+id/cz_app_icon"
++            android:layout_width="52dp"
++            android:layout_height="52dp"
++            android:layout_gravity="center_horizontal"
++            android:layout_marginBottom="6dp"
++            android:scaleType="fitCenter"
++            android:src="@drawable/cz_logo" />
++
++        <LinearLayout
++            android:id="@+id/nav_home"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:orientation="vertical">
++
++            <ImageView
++                android:id="@+id/nav_home_icon"
++                android:layout_width="48dp"
++                android:layout_height="34dp"
++                android:background="@drawable/cz_nav_icon_bg"
++                android:duplicateParentState="true"
++                android:padding="7dp"
++                android:src="@drawable/ic_menu_home"
++                app:tint="#FFFFFF" />
++
++            <TextView
++                android:id="@+id/nav_home_label"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="2dp"
++                android:duplicateParentState="true"
++                android:text="@string/cz_nav_home"
++                android:textColor="@color/cz_nav_text"
++                android:textSize="11sp" />
++        </LinearLayout>
++
++        <LinearLayout
++            android:id="@+id/nav_account"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:orientation="vertical">
++
++            <ImageView
++                android:id="@+id/nav_account_icon"
++                android:layout_width="48dp"
++                android:layout_height="34dp"
++                android:background="@drawable/cz_nav_icon_bg"
++                android:duplicateParentState="true"
++                android:padding="7dp"
++                android:src="@drawable/cz_ic_account"
++                app:tint="#FFFFFF" />
++
++            <TextView
++                android:id="@+id/nav_account_label"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="2dp"
++                android:duplicateParentState="true"
++                android:text="@string/cz_nav_account"
++                android:textColor="@color/cz_nav_text"
++                android:textSize="11sp" />
++        </LinearLayout>
++
++        <LinearLayout
++            android:id="@+id/nav_mod"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:orientation="vertical">
++
++            <ImageView
++                android:id="@+id/nav_mod_icon"
++                android:layout_width="48dp"
++                android:layout_height="34dp"
++                android:background="@drawable/cz_nav_icon_bg"
++                android:duplicateParentState="true"
++                android:padding="7dp"
++                android:src="@drawable/cz_ic_mod"
++                app:tint="#FFFFFF" />
++
++            <TextView
++                android:id="@+id/nav_mod_label"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="2dp"
++                android:duplicateParentState="true"
++                android:text="@string/cz_nav_mod"
++                android:textColor="@color/cz_nav_text"
++                android:textSize="11sp" />
++        </LinearLayout>
++
++        <LinearLayout
++            android:id="@+id/nav_control"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:orientation="vertical">
++
++            <ImageView
++                android:id="@+id/nav_control_icon"
++                android:layout_width="48dp"
++                android:layout_height="34dp"
++                android:background="@drawable/cz_nav_icon_bg"
++                android:duplicateParentState="true"
++                android:padding="7dp"
++                android:src="@drawable/cz_ic_control"
++                app:tint="#FFFFFF" />
++
++            <TextView
++                android:id="@+id/nav_control_label"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="2dp"
++                android:duplicateParentState="true"
++                android:text="@string/cz_nav_control"
++                android:textColor="@color/cz_nav_text"
++                android:textSize="11sp" />
++        </LinearLayout>
++
++        <LinearLayout
++            android:id="@+id/nav_settings"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:orientation="vertical">
++
++            <ImageView
++                android:id="@+id/nav_settings_icon"
++                android:layout_width="48dp"
++                android:layout_height="34dp"
++                android:background="@drawable/cz_nav_icon_bg"
++                android:duplicateParentState="true"
++                android:padding="7dp"
++                android:src="@drawable/ic_menu_settings"
++                app:tint="#FFFFFF" />
++
++            <TextView
++                android:id="@+id/nav_settings_label"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="2dp"
++                android:duplicateParentState="true"
++                android:text="@string/cz_nav_settings"
++                android:textColor="@color/cz_nav_text"
++                android:textSize="11sp" />
++        </LinearLayout>
++
++    </LinearLayout>
++
++    <View
++        android:id="@+id/cz_content_frame"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:layout_marginStart="6dp"
++        android:layout_marginTop="10dp"
++        android:layout_marginEnd="10dp"
++        android:layout_marginBottom="10dp"
++        android:background="@drawable/cz_panel"
++        app:layout_constraintBottom_toTopOf="@+id/progress_layout"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toEndOf="@id/cz_sidebar"
++        app:layout_constraintTop_toTopOf="parent" />
++
+     <!-- Holding most of the dynamic content -->
+     <androidx.fragment.app.FragmentContainerView
+         android:id="@+id/container_fragment"
+-        android:layout_width="match_parent"
++        android:layout_width="0dp"
+         android:layout_height="0dp"
+         app:layout_constraintBottom_toTopOf="@+id/progress_layout"
+         app:layout_constraintEnd_toEndOf="parent"
+-        app:layout_constraintTop_toBottomOf="@id/top_layout" />
++        app:layout_constraintStart_toEndOf="@id/cz_sidebar"
++        android:layout_marginStart="6dp"
++        android:layout_marginEnd="10dp"
++        android:layout_marginTop="10dp"
++        android:layout_marginBottom="10dp"
++        app:layout_constraintTop_toTopOf="parent" />
+ 
+     <View
+         android:id="@+id/shadowView"
+         android:layout_width="match_parent"
+         android:layout_height="@dimen/_4sdp"
+         android:background="@drawable/shadow_gradient_down"
+-        app:layout_constraintTop_toBottomOf="@id/top_layout" />
++        app:layout_constraintTop_toBottomOf="@id/top_layout"
++        android:visibility="gone" />
+ 
+     <View
+         android:id="@+id/progress_shadowView"
+@@ -84,16 +305,17 @@
+         android:background="@drawable/shadow_gradient_up"
+         app:layout_constraintBottom_toTopOf="@+id/progress_layout"
+         app:layout_constraintEnd_toEndOf="parent"
+-        app:layout_constraintStart_toStartOf="parent" />
++        app:layout_constraintStart_toEndOf="@id/cz_sidebar" />
+ 
+     <com.kdt.mcgui.ProgressLayout
+         android:id="@+id/progress_layout"
+-        android:layout_width="match_parent"
++        android:layout_width="0dp"
+         android:layout_height="wrap_content"
+ 
+         android:layout_marginEnd="0dp"
+         app:layout_constraintBottom_toBottomOf="parent"
+-        app:layout_constraintEnd_toEndOf="parent" />
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toEndOf="@id/cz_sidebar" />
+ 
+     <androidx.constraintlayout.widget.ConstraintLayout
+         android:id="@+id/notice_layout"
+@@ -106,7 +328,7 @@
+         app:layout_constraintBottom_toBottomOf="parent"
+         app:layout_constraintEnd_toEndOf="@id/notice_guideline"
+         app:layout_constraintHorizontal_bias="1.0"
+-        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintStart_toEndOf="@id/cz_sidebar"
+         app:layout_constraintTop_toBottomOf="@id/top_layout"
+         app:layout_constraintVertical_bias="0.333">
+ 
+diff -ruN a/ZalithLauncher/src/main/res/layout/fragment_account.xml b/ZalithLauncher/src/main/res/layout/fragment_account.xml
+--- a/ZalithLauncher/src/main/res/layout/fragment_account.xml	2026-10-24 20:15:54.111863608 +0000
++++ b/ZalithLauncher/src/main/res/layout/fragment_account.xml	2026-10-24 20:15:54.108043216 +0000
+@@ -14,9 +14,9 @@
+         android:layout_width="0dp"
+         android:layout_height="match_parent"
+         app:layout_constraintBottom_toBottomOf="parent"
+-        app:layout_constraintEnd_toStartOf="@id/operation_layout"
++        app:layout_constraintEnd_toEndOf="parent"
+         app:layout_constraintHorizontal_weight="6.5"
+-        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintStart_toEndOf="@id/operation_layout"
+         app:layout_constraintTop_toTopOf="parent">
+ 
+         <androidx.constraintlayout.widget.ConstraintLayout
+@@ -130,9 +130,9 @@
+         android:layout_width="0dp"
+         android:layout_height="match_parent"
+         app:layout_constraintBottom_toBottomOf="parent"
+-        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintEnd_toStartOf="@id/account_menu"
+         app:layout_constraintHorizontal_weight="3"
+-        app:layout_constraintStart_toEndOf="@id/account_menu"
++        app:layout_constraintStart_toStartOf="parent"
+         app:layout_constraintTop_toTopOf="parent">
+ 
+         <View
+@@ -142,13 +142,14 @@
+             android:background="@drawable/shadow_gradient_right"
+             app:layout_constraintBottom_toBottomOf="parent"
+             app:layout_constraintStart_toStartOf="parent"
+-            app:layout_constraintTop_toTopOf="parent" />
++            app:layout_constraintTop_toTopOf="parent" android:visibility="gone" />
+ 
+         <androidx.constraintlayout.widget.ConstraintLayout
+             android:id="@+id/operation_main_layout"
+             android:layout_width="0dp"
+             android:layout_height="match_parent"
+-            android:background="@color/menu_overlay"
++            android:background="@android:color/transparent"
++            android:paddingTop="12dp"
+             app:layout_constraintTop_toTopOf="parent"
+             app:layout_constraintBottom_toBottomOf="parent"
+             app:layout_constraintEnd_toEndOf="parent"
+@@ -167,15 +168,26 @@
+                 app:layout_constraintStart_toStartOf="parent"
+                 tools:ignore="MissingConstraints" />
+ 
++            <com.movtery.zalithlauncher.ui.view.SkinView3D
++                android:id="@+id/skin_view"
++                android:layout_width="0dp"
++                android:layout_height="0dp"
++                android:layout_marginHorizontal="12dp"
++                app:layout_constraintBottom_toTopOf="@id/view_account"
++                app:layout_constraintEnd_toEndOf="parent"
++                app:layout_constraintStart_toStartOf="parent"
++                app:layout_constraintTop_toTopOf="parent" />
++
+             <include
+                 android:id="@+id/view_account"
+                 layout="@layout/view_account"
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
++                android:layout_marginBottom="8dp"
+                 app:layout_constraintBottom_toTopOf="@id/return_button"
+                 app:layout_constraintEnd_toEndOf="parent"
+                 app:layout_constraintStart_toStartOf="parent"
+-                app:layout_constraintTop_toTopOf="parent" />
++                app:layout_constraintTop_toBottomOf="@id/skin_view" />
+ 
+         </androidx.constraintlayout.widget.ConstraintLayout>
+ 
+diff -ruN a/ZalithLauncher/src/main/res/layout/fragment_download.xml b/ZalithLauncher/src/main/res/layout/fragment_download.xml
+--- a/ZalithLauncher/src/main/res/layout/fragment_download.xml	2026-10-24 20:15:54.119729301 +0000
++++ b/ZalithLauncher/src/main/res/layout/fragment_download.xml	2026-10-24 20:15:54.116049224 +0000
+@@ -30,19 +30,19 @@
+             android:background="@drawable/shadow_gradient_left"
+             app:layout_constraintBottom_toBottomOf="parent"
+             app:layout_constraintEnd_toEndOf="parent"
+-            app:layout_constraintTop_toTopOf="parent" />
++            app:layout_constraintTop_toTopOf="parent" android:visibility="gone" />
+ 
+         <com.angcyo.tablayout.DslTabLayout
+             android:id="@+id/classify_tab"
+             android:layout_width="wrap_content"
+             android:layout_height="match_parent"
+-            android:background="@color/menu_overlay"
++            android:layout_marginTop="28dp"
++            android:background="@android:color/transparent"
+             app:layout_constraintEnd_toStartOf="@+id/classify_shadowView"
+             app:layout_constraintStart_toStartOf="parent"
+             app:tab_draw_indicator="true"
+             app:tab_indicator_enable_flow="true"
+-            app:tab_indicator_drawable="@drawable/selector_bar_vertical"
+-            app:tab_indicator_x_offset="@dimen/_4sdp"
++            app:tab_indicator_drawable="@drawable/cz_tab_indicator"
+             app:tab_orientation="VERTICAL">
+ 
+             <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+diff -ruN a/ZalithLauncher/src/main/res/layout/fragment_launcher.xml b/ZalithLauncher/src/main/res/layout/fragment_launcher.xml
+--- a/ZalithLauncher/src/main/res/layout/fragment_launcher.xml	2026-10-24 20:15:54.127311468 +0000
++++ b/ZalithLauncher/src/main/res/layout/fragment_launcher.xml	2026-10-24 20:15:54.123774015 +0000
+@@ -3,357 +3,549 @@
+     xmlns:app="http://schemas.android.com/apk/res-auto"
+     xmlns:tools="http://schemas.android.com/tools"
+     android:id="@+id/fragment_menu_main"
+-    android:layout_width="fill_parent"
+-    android:layout_height="fill_parent"
++    android:layout_width="match_parent"
++    android:layout_height="match_parent"
+     android:background="@android:color/transparent"
+-    android:gravity="top"
+-    android:orientation="vertical"
+     tools:ignore="ContentDescription">
+ 
+-    <androidx.constraintlayout.widget.ConstraintLayout
+-        android:id="@+id/launcher_menu"
++    <!-- Positions are fractions of the content panel, measured from the reference image (1600x720) -->
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_pill_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.022" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_pill_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.15" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_skin_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.027" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_skin_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.2136" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_btn1_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.9003" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_btn1_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.934" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_btn2_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.9437" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_btn2_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.9797" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_vid_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.8393" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_vid_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.9573" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_play_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.0224" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gv_play_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.9797" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_pill_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.0305" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_pill_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.103" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_skin_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.132" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_skin_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.815" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_btn_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.0305" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_btn_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.1076" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_vid_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.745" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_vid_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.840" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_play_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.865" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/gh_play_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.975" />
++
++    <FrameLayout
++        android:id="@+id/banner_container"
+         android:layout_width="0dp"
+-        android:layout_height="match_parent"
++        android:layout_height="0dp"
++        android:background="@drawable/cz_banner_bg"
++        android:clipToOutline="true"
+         app:layout_constraintBottom_toBottomOf="parent"
+-        app:layout_constraintEnd_toStartOf="@+id/play_layout"
+-        app:layout_constraintHorizontal_weight="6.5"
++        app:layout_constraintEnd_toEndOf="parent"
+         app:layout_constraintStart_toStartOf="parent"
+         app:layout_constraintTop_toTopOf="parent">
+ 
+-        <ScrollView
++        <ImageView
++            android:id="@+id/banner_image"
+             android:layout_width="match_parent"
+             android:layout_height="match_parent"
+-            app:layout_constraintBottom_toBottomOf="parent"
+-            app:layout_constraintEnd_toEndOf="parent"
+-            app:layout_constraintStart_toStartOf="parent"
+-            app:layout_constraintTop_toTopOf="parent">
++            android:scaleType="centerCrop" />
++    </FrameLayout>
+ 
+-            <LinearLayout
+-                android:layout_width="match_parent"
+-                android:layout_height="wrap_content"
+-                android:orientation="vertical">
+-
+-                <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                    android:id="@+id/about_button"
+-                    android:layout_width="match_parent"
+-                    android:layout_height="wrap_content"
+-                    android:layout_marginTop="@dimen/_12sdp"
+-                    android:layout_marginStart="@dimen/_12sdp"
+-                    android:layout_marginEnd="@dimen/_8sdp"
+-                    android:translationZ="4dp"
+-                    android:background="@drawable/background_item"
+-                    android:paddingHorizontal="@dimen/_8sdp"
+-                    android:paddingVertical="@dimen/_12sdp"
+-                    app:ripple_for_relative="true">
+-
+-                    <ImageView
+-                        android:id="@+id/about_icon"
+-                        android:layout_width="@dimen/_24sdp"
+-                        android:layout_height="@dimen/_24sdp"
+-                        android:layout_marginStart="@dimen/_8sdp"
+-                        android:layout_alignParentStart="true"
+-                        android:layout_centerVertical="true"
+-                        android:scaleX="0.93"
+-                        android:scaleY="0.93"
+-                        android:src="@drawable/ic_about"/>
+-
+-                    <TextView
+-                        android:id="@+id/about_text"
+-                        android:layout_width="0dp"
+-                        android:layout_height="wrap_content"
+-                        android:layout_marginStart="@dimen/_16sdp"
+-                        android:layout_marginEnd="@dimen/_8sdp"
+-                        android:layout_alignParentEnd="true"
+-                        android:layout_centerVertical="true"
+-                        android:layout_toEndOf="@id/about_icon"
+-                        android:textSize="@dimen/_12sdp"
+-                        android:textColor="@color/primary_text"/>
+-
+-                </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-                <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                    android:id="@+id/custom_control_button"
+-                    android:layout_width="match_parent"
+-                    android:layout_height="wrap_content"
+-                    android:layout_marginTop="@dimen/_12sdp"
+-                    android:layout_marginStart="@dimen/_12sdp"
+-                    android:layout_marginEnd="@dimen/_8sdp"
+-                    android:translationZ="4dp"
+-                    android:background="@drawable/background_item"
+-                    android:paddingHorizontal="@dimen/_8sdp"
+-                    android:paddingVertical="@dimen/_12sdp"
+-                    app:ripple_for_relative="true">
+-
+-                    <ImageView
+-                        android:id="@+id/custom_control_icon"
+-                        android:layout_width="@dimen/_24sdp"
+-                        android:layout_height="@dimen/_24sdp"
+-                        android:layout_marginStart="@dimen/_8sdp"
+-                        android:layout_alignParentStart="true"
+-                        android:layout_centerVertical="true"
+-                        android:src="@drawable/ic_menu_custom_controls"/>
+-
+-                    <TextView
+-                        android:layout_width="0dp"
+-                        android:layout_height="wrap_content"
+-                        android:layout_marginStart="@dimen/_16sdp"
+-                        android:layout_marginEnd="@dimen/_8sdp"
+-                        android:layout_alignParentEnd="true"
+-                        android:layout_centerVertical="true"
+-                        android:layout_toEndOf="@id/custom_control_icon"
+-                        android:text="@string/custom_control_title"
+-                        android:textSize="@dimen/_12sdp"
+-                        android:textColor="@color/primary_text"/>
+-
+-                </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-                <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                    android:id="@+id/open_main_dir_button"
+-                    android:layout_width="match_parent"
+-                    android:layout_height="wrap_content"
+-                    android:layout_marginTop="@dimen/_12sdp"
+-                    android:layout_marginStart="@dimen/_12sdp"
+-                    android:layout_marginEnd="@dimen/_8sdp"
+-                    android:translationZ="4dp"
+-                    android:background="@drawable/background_item"
+-                    android:paddingHorizontal="@dimen/_8sdp"
+-                    android:paddingVertical="@dimen/_12sdp"
+-                    app:ripple_for_relative="true">
+-
+-                    <ImageView
+-                        android:id="@+id/open_main_dir_icon"
+-                        android:layout_width="@dimen/_24sdp"
+-                        android:layout_height="@dimen/_24sdp"
+-                        android:layout_marginStart="@dimen/_8sdp"
+-                        android:layout_alignParentStart="true"
+-                        android:layout_centerVertical="true"
+-                        android:src="@drawable/ic_folder"/>
+-
+-                    <TextView
+-                        android:layout_width="0dp"
+-                        android:layout_height="wrap_content"
+-                        android:layout_marginStart="@dimen/_16sdp"
+-                        android:layout_marginEnd="@dimen/_8sdp"
+-                        android:layout_alignParentEnd="true"
+-                        android:layout_centerVertical="true"
+-                        android:layout_toEndOf="@id/open_main_dir_icon"
+-                        android:text="@string/main_open_main_dir"
+-                        android:textSize="@dimen/_12sdp"
+-                        android:textColor="@color/primary_text"/>
+-
+-                </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-                <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                    android:id="@+id/install_jar_button"
+-                    android:layout_width="match_parent"
+-                    android:layout_height="wrap_content"
+-                    android:layout_marginTop="@dimen/_12sdp"
+-                    android:layout_marginStart="@dimen/_12sdp"
+-                    android:layout_marginEnd="@dimen/_8sdp"
+-                    android:translationZ="4dp"
+-                    android:background="@drawable/background_item"
+-                    android:paddingHorizontal="@dimen/_8sdp"
+-                    android:paddingVertical="@dimen/_12sdp"
+-                    app:ripple_for_relative="true">
+-
+-                    <ImageView
+-                        android:id="@+id/install_jar_icon"
+-                        android:layout_width="@dimen/_24sdp"
+-                        android:layout_height="@dimen/_24sdp"
+-                        android:layout_marginStart="@dimen/_8sdp"
+-                        android:layout_alignParentStart="true"
+-                        android:layout_centerVertical="true"
+-                        android:src="@drawable/ic_java"/>
+-
+-                    <TextView
+-                        android:layout_width="0dp"
+-                        android:layout_height="wrap_content"
+-                        android:layout_marginStart="@dimen/_16sdp"
+-                        android:layout_marginEnd="@dimen/_8sdp"
+-                        android:layout_alignParentEnd="true"
+-                        android:layout_centerVertical="true"
+-                        android:layout_toEndOf="@id/install_jar_icon"
+-                        android:text="@string/main_install_jar_file"
+-                        android:textSize="@dimen/_12sdp"
+-                        android:textColor="@color/primary_text"/>
+-
+-                </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-                <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                    android:id="@+id/share_logs_button"
+-                    android:layout_width="match_parent"
+-                    android:layout_height="wrap_content"
+-                    android:layout_marginTop="@dimen/_12sdp"
+-                    android:layout_marginStart="@dimen/_12sdp"
+-                    android:layout_marginEnd="@dimen/_8sdp"
+-                    android:layout_marginBottom="@dimen/_12sdp"
+-                    android:translationZ="4dp"
+-                    android:background="@drawable/background_item"
+-                    android:paddingHorizontal="@dimen/_8sdp"
+-                    android:paddingVertical="@dimen/_12sdp"
+-                    app:ripple_for_relative="true">
+-
+-                    <ImageView
+-                        android:id="@+id/share_logs_icon"
+-                        android:layout_width="@dimen/_24sdp"
+-                        android:layout_height="@dimen/_24sdp"
+-                        android:layout_marginStart="@dimen/_8sdp"
+-                        android:layout_alignParentStart="true"
+-                        android:layout_centerVertical="true"
+-                        android:src="@drawable/ic_share"/>
+-
+-                    <TextView
+-                        android:layout_width="0dp"
+-                        android:layout_height="wrap_content"
+-                        android:layout_marginStart="@dimen/_16sdp"
+-                        android:layout_marginEnd="@dimen/_8sdp"
+-                        android:layout_alignParentEnd="true"
+-                        android:layout_centerVertical="true"
+-                        android:layout_toEndOf="@id/share_logs_icon"
+-                        android:text="@string/main_share_logs"
+-                        android:textSize="@dimen/_12sdp"
+-                        android:textColor="@color/primary_text"/>
+-
+-                </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-            </LinearLayout>
+-        </ScrollView>
++    <include
++        android:id="@+id/account_pill"
++        layout="@layout/view_account_pill"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        app:layout_constraintStart_toStartOf="@id/gv_pill_l"
++        app:layout_constraintEnd_toEndOf="@id/gv_pill_r"
++        app:layout_constraintTop_toTopOf="@id/gh_pill_t"
++        app:layout_constraintBottom_toBottomOf="@id/gh_pill_b" />
+ 
+-    </androidx.constraintlayout.widget.ConstraintLayout>
++    <ImageButton
++        android:id="@+id/btn_banner_orientation"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:background="@drawable/cz_icon_button"
++        android:padding="6dp"
++        android:scaleType="fitCenter"
++        android:src="@drawable/cz_ic_rotate"
++        app:layout_constraintStart_toStartOf="@id/gv_btn1_l"
++        app:layout_constraintEnd_toEndOf="@id/gv_btn1_r"
++        app:layout_constraintTop_toTopOf="@id/gh_btn_t"
++        app:layout_constraintBottom_toBottomOf="@id/gh_btn_b" />
++
++    <ImageButton
++        android:id="@+id/btn_banner_pick"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:background="@drawable/cz_icon_button"
++        android:padding="6dp"
++        android:scaleType="fitCenter"
++        android:src="@drawable/cz_ic_image"
++        app:layout_constraintStart_toStartOf="@id/gv_btn2_l"
++        app:layout_constraintEnd_toEndOf="@id/gv_btn2_r"
++        app:layout_constraintTop_toTopOf="@id/gh_btn_t"
++        app:layout_constraintBottom_toBottomOf="@id/gh_btn_b" />
++
++    <FrameLayout
++        android:id="@+id/skin_panel"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:background="@drawable/cz_skin_panel"
++        android:padding="12dp"
++        app:layout_constraintStart_toStartOf="@id/gv_skin_l"
++        app:layout_constraintEnd_toEndOf="@id/gv_skin_r"
++        app:layout_constraintTop_toTopOf="@id/gh_skin_t"
++        app:layout_constraintBottom_toBottomOf="@id/gh_skin_b">
++
++        <com.movtery.zalithlauncher.ui.view.SkinView3D
++            android:id="@+id/skin_view"
++            android:layout_width="match_parent"
++            android:layout_height="match_parent" />
++    </FrameLayout>
++
++    <LinearLayout
++        android:id="@+id/btn_video_setting"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:background="@drawable/cz_pill"
++        android:clickable="true"
++        android:focusable="true"
++        android:gravity="center"
++        android:orientation="horizontal"
++        android:paddingStart="8dp"
++        android:paddingEnd="8dp"
++        app:layout_constraintStart_toStartOf="@id/gv_vid_l"
++        app:layout_constraintEnd_toEndOf="@id/gv_vid_r"
++        app:layout_constraintTop_toTopOf="@id/gh_vid_t"
++        app:layout_constraintBottom_toBottomOf="@id/gh_vid_b">
++
++        <ImageView
++            android:layout_width="18dp"
++            android:layout_height="18dp"
++            android:src="@drawable/ic_setting_video"
++            app:tint="@color/cz_text" />
++
++        <TextView
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_marginStart="6dp"
++            android:autoSizeMaxTextSize="14sp"
++            android:autoSizeMinTextSize="8sp"
++            android:autoSizeTextType="uniform"
++            android:maxLines="2"
++            android:text="@string/cz_video_setting"
++            android:textColor="@color/cz_text"
++            android:textStyle="bold" />
++    </LinearLayout>
+ 
+     <androidx.constraintlayout.widget.ConstraintLayout
+         android:id="@+id/play_layout"
+         android:layout_width="0dp"
+-        android:layout_height="match_parent"
+-        app:layout_constraintBottom_toBottomOf="parent"
+-        app:layout_constraintEnd_toEndOf="parent"
+-        app:layout_constraintHorizontal_weight="3"
+-        app:layout_constraintStart_toEndOf="@+id/launcher_menu"
+-        app:layout_constraintTop_toTopOf="parent">
++        android:layout_height="0dp"
++        android:background="@drawable/cz_panel_glass"
++        app:layout_constraintStart_toStartOf="@id/gv_play_l"
++        app:layout_constraintEnd_toEndOf="@id/gv_play_r"
++        app:layout_constraintTop_toTopOf="@id/gh_play_t"
++        app:layout_constraintBottom_toBottomOf="@id/gh_play_b">
++
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_icon_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.012" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_icon_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.0659" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_name_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.0793" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_vers_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.4" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_chip1_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.0793" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_chip1_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.125" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_chip2_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.131" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_chip2_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.175" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_chip3_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.181" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_chip3_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.235" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_mgr_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.795" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_mgr_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.84" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_play_l"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.856" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/iv_play_r"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="vertical"
++        app:layout_constraintGuide_percent="0.986" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_icon_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.177" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_icon_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.85" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_name_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.14" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_name_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.46" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_chip_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.52" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_chip_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.86" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_mgr_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.27" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_mgr_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.73" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_play_t"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.195" />
++    <androidx.constraintlayout.widget.Guideline
++        android:id="@+id/ih_play_b"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        app:layout_constraintGuide_percent="0.823" />
++
++        <!-- Icon / name / chips use the reference proportions; the transparent @id/version layer on top is the click target -->
++        <ImageView
++            android:id="@+id/version_icon"
++            android:layout_width="0dp"
++            android:layout_height="0dp"
++            android:scaleType="centerInside"
++            android:src="@drawable/ic_minecraft"
++            android:clickable="false"
++            app:layout_constraintStart_toStartOf="@id/iv_icon_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_icon_r"
++        app:layout_constraintTop_toTopOf="@id/ih_icon_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_icon_b" />
+ 
+-        <View
+-            android:id="@+id/shadowView"
+-            android:layout_width="@dimen/_4sdp"
+-            android:layout_height="match_parent"
+-            android:background="@drawable/shadow_gradient_right"
+-            app:layout_constraintBottom_toBottomOf="parent"
+-            app:layout_constraintStart_toStartOf="@id/play_layout"
+-            app:layout_constraintTop_toTopOf="parent" />
++        <TextView
++            android:id="@+id/version_name"
++            android:layout_width="0dp"
++            android:layout_height="0dp"
++            android:ellipsize="marquee"
++            android:focusable="true"
++            android:focusableInTouchMode="true"
++            android:gravity="center_vertical|start"
++            android:marqueeRepeatLimit="marquee_forever"
++            android:scrollHorizontally="true"
++            android:singleLine="true"
++            android:text="@string/version_no_versions"
++            android:textColor="@color/cz_text"
++            android:textStyle="bold"
++            android:autoSizeTextType="uniform"
++            android:autoSizeMinTextSize="9sp"
++            android:autoSizeMaxTextSize="18sp"
++            app:layout_constraintStart_toStartOf="@id/iv_name_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_vers_r"
++        app:layout_constraintTop_toTopOf="@id/ih_name_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_name_b" />
++
++            <TextView
++                android:id="@+id/chip_loader"
++                android:layout_width="0dp"
++                android:layout_height="0dp"
++                android:background="@drawable/cz_chip"
++                android:gravity="center"
++                android:singleLine="true"
++                android:textColor="#FFFFFF"
++                android:textStyle="bold"
++                android:visibility="gone"
++                android:autoSizeTextType="uniform"
++                android:autoSizeMinTextSize="7sp"
++                android:autoSizeMaxTextSize="12sp"
++                android:paddingStart="4dp"
++                android:paddingEnd="4dp"
++                app:layout_constraintStart_toStartOf="@id/iv_chip1_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_chip1_r"
++        app:layout_constraintTop_toTopOf="@id/ih_chip_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_chip_b" />
++
++            <TextView
++                android:id="@+id/chip_mc"
++                android:layout_width="0dp"
++                android:layout_height="0dp"
++                android:background="@drawable/cz_chip"
++                android:gravity="center"
++                android:singleLine="true"
++                android:textColor="#FFFFFF"
++                android:textStyle="bold"
++                android:visibility="gone"
++                android:autoSizeTextType="uniform"
++                android:autoSizeMinTextSize="7sp"
++                android:autoSizeMaxTextSize="12sp"
++                android:paddingStart="4dp"
++                android:paddingEnd="4dp"
++                app:layout_constraintStart_toStartOf="@id/iv_chip2_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_chip2_r"
++        app:layout_constraintTop_toTopOf="@id/ih_chip_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_chip_b" />
++
++            <TextView
++                android:id="@+id/chip_java"
++                android:layout_width="0dp"
++                android:layout_height="0dp"
++                android:background="@drawable/cz_chip"
++                android:gravity="center"
++                android:singleLine="true"
++                android:textColor="#FFFFFF"
++                android:textStyle="bold"
++                android:visibility="gone"
++                android:autoSizeTextType="uniform"
++                android:autoSizeMinTextSize="7sp"
++                android:autoSizeMaxTextSize="12sp"
++                android:paddingStart="4dp"
++                android:paddingEnd="4dp"
++                app:layout_constraintStart_toStartOf="@id/iv_chip3_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_chip3_r"
++        app:layout_constraintTop_toTopOf="@id/ih_chip_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_chip_b" />
+ 
+-        <androidx.constraintlayout.widget.ConstraintLayout
+-            android:id="@+id/play_main_layout"
++        <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
++            android:id="@+id/version"
+             android:layout_width="0dp"
+-            android:layout_height="match_parent"
+-            android:background="@color/menu_overlay"
+-            app:layout_constraintTop_toTopOf="parent"
++            android:layout_height="0dp"
+             app:layout_constraintBottom_toBottomOf="parent"
+-            app:layout_constraintEnd_toEndOf="parent"
+-            app:layout_constraintStart_toEndOf="@id/shadowView">
+-
+-            <androidx.constraintlayout.widget.ConstraintLayout
+-                android:id="@+id/play_buttons_layout"
+-                android:layout_width="match_parent"
+-                android:layout_height="match_parent">
+-
+-                <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                    android:id="@+id/version"
+-                    android:layout_width="0dp"
+-                    android:layout_height="@dimen/_38sdp"
+-                    android:layout_marginBottom="@dimen/_8sdp"
+-                    app:layout_constraintBottom_toTopOf="@+id/play_button"
+-                    app:layout_constraintEnd_toStartOf="@+id/manager_profile_button"
+-                    app:layout_constraintHorizontal_bias="0.0"
+-                    app:layout_constraintStart_toEndOf="parent"
+-                    app:layout_constraintStart_toStartOf="parent">
+-
+-                    <ImageView
+-                        android:id="@+id/version_icon"
+-                        android:layout_width="@dimen/_36sdp"
+-                        android:layout_height="@dimen/_36sdp"
+-                        android:layout_marginStart="@dimen/_12sdp"
+-                        android:layout_centerVertical="true"
+-                        android:scaleType="centerInside"
+-                        android:src="@drawable/ic_minecraft"/>
+-
+-                    <LinearLayout
+-                        android:layout_width="match_parent"
+-                        android:layout_height="wrap_content"
+-                        android:layout_marginHorizontal="@dimen/_8sdp"
+-                        android:layout_centerVertical="true"
+-                        android:layout_alignParentEnd="true"
+-                        android:layout_toEndOf="@id/version_icon"
+-                        android:orientation="vertical">
+-
+-                        <TextView
+-                            android:id="@+id/version_name"
+-                            android:layout_width="match_parent"
+-                            android:layout_height="wrap_content"
+-                            android:gravity="start"
+-                            android:singleLine="true"
+-                            android:focusable="true"
+-                            android:focusableInTouchMode="true"
+-                            android:ellipsize="marquee"
+-                            android:scrollHorizontally="true"
+-                            android:marqueeRepeatLimit="marquee_forever"
+-                            android:text="@string/version_no_versions" />
+-
+-                        <TextView
+-                            android:id="@+id/version_info"
+-                            android:layout_width="match_parent"
+-                            android:layout_height="wrap_content"
+-                            android:gravity="start"
+-                            android:singleLine="true"
+-                            android:focusable="true"
+-                            android:focusableInTouchMode="true"
+-                            android:ellipsize="marquee"
+-                            android:scrollHorizontally="true"
+-                            android:marqueeRepeatLimit="marquee_forever"
+-                            android:visibility="gone" />
+-
+-                    </LinearLayout>
+-
+-                </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-                <ImageButton
+-                    android:id="@+id/manager_profile_button"
+-                    android:layout_width="@dimen/_38sdp"
+-                    android:layout_height="0dp"
+-                    android:layout_marginEnd="@dimen/_8sdp"
+-                    android:layout_marginBottom="@dimen/_8sdp"
+-                    android:background="?android:attr/selectableItemBackgroundBorderless"
+-                    android:scaleType="centerInside"
+-                    android:src="@drawable/ic_setting"
+-                    app:layout_constraintBottom_toTopOf="@+id/play_button"
+-                    app:layout_constraintEnd_toEndOf="parent"
+-                    app:layout_constraintTop_toTopOf="@id/version" />
+-
+-                <com.movtery.zalithlauncher.ui.view.AnimButton
+-                    android:id="@+id/play_button"
+-                    android:layout_width="0dp"
+-                    android:layout_height="wrap_content"
+-                    android:layout_marginHorizontal="@dimen/_8sdp"
+-                    android:layout_marginBottom="@dimen/_8sdp"
+-                    android:text="@string/main_launch"
+-                    android:textAllCaps="true"
+-                    app:layout_constraintBottom_toBottomOf="parent"
+-                    app:layout_constraintEnd_toEndOf="parent"
+-                    app:layout_constraintStart_toStartOf="parent"
+-                    tools:ignore="MissingConstraints" />
+-
+-                <include
+-                    android:id="@+id/view_account"
+-                    layout="@layout/view_account"
+-                    android:layout_width="wrap_content"
+-                    android:layout_height="wrap_content"
+-                    app:layout_constraintBottom_toTopOf="@id/version"
+-                    app:layout_constraintEnd_toEndOf="parent"
+-                    app:layout_constraintStart_toStartOf="parent"
+-                    app:layout_constraintTop_toTopOf="parent" />
++            app:layout_constraintEnd_toEndOf="@id/iv_vers_r"
++            app:layout_constraintStart_toStartOf="@id/iv_icon_l"
++            app:layout_constraintTop_toTopOf="parent" />
+ 
+-            </androidx.constraintlayout.widget.ConstraintLayout>
++        <TextView
++            android:id="@+id/version_info"
++            android:layout_width="0dp"
++            android:layout_height="0dp"
++            android:visibility="gone"
++            app:layout_constraintStart_toStartOf="parent"
++            app:layout_constraintTop_toTopOf="parent" />
+ 
+-        </androidx.constraintlayout.widget.ConstraintLayout>
++        <ImageButton
++            android:id="@+id/manager_profile_button"
++            android:layout_width="0dp"
++            android:layout_height="0dp"
++            android:background="@drawable/cz_icon_button"
++            android:padding="6dp"
++            android:scaleType="fitCenter"
++            android:src="@drawable/ic_setting"
++            app:tint="@color/cz_text"
++            app:layout_constraintStart_toStartOf="@id/iv_mgr_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_mgr_r"
++        app:layout_constraintTop_toTopOf="@id/ih_mgr_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_mgr_b" />
+ 
++        <com.movtery.zalithlauncher.ui.view.AnimButton
++            android:id="@+id/play_button"
++            android:layout_width="0dp"
++            android:layout_height="0dp"
++            android:background="@drawable/cz_button_primary"
++            android:text="@string/main_launch"
++            android:textAllCaps="true"
++            android:textColor="#FFFFFF"
++            android:textStyle="bold"
++            android:autoSizeTextType="uniform"
++            android:autoSizeMinTextSize="8sp"
++            android:autoSizeMaxTextSize="16sp"
++            android:padding="4dp"
++            app:layout_constraintStart_toStartOf="@id/iv_play_l"
++        app:layout_constraintEnd_toEndOf="@id/iv_play_r"
++        app:layout_constraintTop_toTopOf="@id/ih_play_t"
++        app:layout_constraintBottom_toBottomOf="@id/ih_play_b" />
+     </androidx.constraintlayout.widget.ConstraintLayout>
+ 
+ </androidx.constraintlayout.widget.ConstraintLayout>
+-
+diff -ruN a/ZalithLauncher/src/main/res/layout/fragment_settings.xml b/ZalithLauncher/src/main/res/layout/fragment_settings.xml
+--- a/ZalithLauncher/src/main/res/layout/fragment_settings.xml	2026-10-24 20:15:54.136169626 +0000
++++ b/ZalithLauncher/src/main/res/layout/fragment_settings.xml	2026-10-24 20:15:54.131915526 +0000
+@@ -6,202 +6,92 @@
+     android:layout_height="match_parent"
+     tools:context="com.movtery.zalithlauncher.ui.fragment.SettingsFragment">
+ 
+-    <androidx.viewpager2.widget.ViewPager2
+-        android:id="@+id/settings_viewpager"
++    <LinearLayout
++        android:id="@+id/settings_layout"
+         android:layout_width="0dp"
+-        android:layout_height="0dp"
+-        android:layout_marginStart="@dimen/_minus4sdp"
+-        app:layout_constraintBottom_toBottomOf="parent"
++        android:layout_height="44dp"
++        android:layout_marginStart="12dp"
++        android:layout_marginTop="10dp"
++        android:layout_marginEnd="12dp"
++        android:orientation="horizontal"
+         app:layout_constraintEnd_toEndOf="parent"
+-        app:layout_constraintStart_toEndOf="@+id/settings_layout"
+-        app:layout_constraintTop_toTopOf="parent" />
+-
+-    <androidx.constraintlayout.widget.ConstraintLayout
+-        android:id="@+id/settings_layout"
+-        android:layout_width="wrap_content"
+-        android:layout_height="0dp"
+-        app:layout_constraintBottom_toBottomOf="parent"
+         app:layout_constraintStart_toStartOf="parent"
+         app:layout_constraintTop_toTopOf="parent">
+ 
+-        <View
+-            android:id="@+id/shadowView"
+-            android:layout_width="@dimen/_4sdp"
+-            android:layout_height="0dp"
+-            android:background="@drawable/shadow_gradient_left"
+-            app:layout_constraintBottom_toBottomOf="parent"
+-            app:layout_constraintEnd_toEndOf="parent"
+-            app:layout_constraintTop_toTopOf="parent" />
+-
+-        <com.angcyo.tablayout.DslTabLayout
+-            android:id="@+id/settings_tab"
+-            android:layout_width="wrap_content"
++        <TextView
++            android:id="@+id/settings_tab_game"
++            android:layout_width="0dp"
+             android:layout_height="match_parent"
+-            android:background="@color/menu_overlay"
+-            app:layout_constraintEnd_toStartOf="@+id/shadowView"
+-            app:layout_constraintStart_toStartOf="parent"
+-            app:tab_draw_indicator="true"
+-            app:tab_indicator_enable_flow="true"
+-            app:tab_indicator_drawable="@drawable/selector_bar_vertical"
+-            app:tab_indicator_x_offset="@dimen/_6sdp"
+-            app:tab_orientation="VERTICAL">
+-
+-            <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                android:layout_width="wrap_content"
+-                android:layout_height="wrap_content"
+-                android:padding="@dimen/_8sdp"
+-                app:layout_constraintStart_toStartOf="parent"
+-                app:layout_constraintTop_toTopOf="parent">
+-
+-                <ImageView
+-                    android:id="@+id/video_image"
+-                    android:layout_width="@dimen/_28sdp"
+-                    android:layout_height="@dimen/_28sdp"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_6sdp"
+-                    android:background="@android:color/transparent"
+-                    android:contentDescription="@string/setting_category_video"
+-                    android:scaleType="fitCenter"
+-                    android:scaleX="0.92"
+-                    android:scaleY="0.92"
+-                    app:srcCompat="@drawable/ic_setting_video" />
+-
+-                <TextView
+-                    android:layout_width="@dimen/_70sdp"
+-                    android:layout_height="wrap_content"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_8sdp"
+-                    android:layout_toEndOf="@+id/video_image"
+-                    android:text="@string/setting_category_video"
+-                    android:textColor="@color/black_or_white" />
+-            </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-            <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                android:layout_width="wrap_content"
+-                android:layout_height="wrap_content"
+-                android:padding="@dimen/_8sdp"
+-                app:layout_constraintStart_toStartOf="@+id/video_settings"
+-                app:layout_constraintTop_toBottomOf="@+id/video_settings">
+-
+-                <ImageView
+-                    android:id="@+id/controls_image"
+-                    android:layout_width="@dimen/_28sdp"
+-                    android:layout_height="@dimen/_28sdp"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_6sdp"
+-                    android:background="@android:color/transparent"
+-                    android:contentDescription="@string/setting_category_control"
+-                    android:scaleType="fitCenter"
+-                    android:scaleX="0.92"
+-                    android:scaleY="0.92"
+-                    app:srcCompat="@drawable/ic_menu_custom_controls" />
+-
+-                <TextView
+-                    android:layout_width="0dp"
+-                    android:layout_height="wrap_content"
+-                    android:layout_alignParentEnd="true"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_8sdp"
+-                    android:layout_toEndOf="@+id/controls_image"
+-                    android:text="@string/setting_category_control"
+-                    android:textColor="@color/black_or_white" />
+-            </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-            <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                android:layout_width="wrap_content"
+-                android:layout_height="wrap_content"
+-                android:padding="@dimen/_8sdp"
+-                app:layout_constraintStart_toStartOf="@+id/controls_settings"
+-                app:layout_constraintTop_toBottomOf="@+id/controls_settings">
+-
+-                <ImageView
+-                    android:id="@+id/game_image"
+-                    android:layout_width="@dimen/_28sdp"
+-                    android:layout_height="@dimen/_28sdp"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_6sdp"
+-                    android:background="@android:color/transparent"
+-                    android:contentDescription="@string/setting_category_launcher"
+-                    android:scaleType="fitCenter"
+-                    android:scaleX="0.8"
+-                    android:scaleY="0.8"
+-                    app:srcCompat="@drawable/ic_setting_game" />
+-
+-                <TextView
+-                    android:layout_width="0dp"
+-                    android:layout_height="wrap_content"
+-                    android:layout_alignParentEnd="true"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_8sdp"
+-                    android:layout_toEndOf="@+id/game_image"
+-                    android:text="@string/setting_category_game"
+-                    android:textColor="@color/black_or_white" />
+-            </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-            <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                android:layout_width="wrap_content"
+-                android:layout_height="wrap_content"
+-                android:padding="@dimen/_8sdp"
+-                app:layout_constraintStart_toStartOf="@+id/game_settings"
+-                app:layout_constraintTop_toBottomOf="@+id/game_settings">
+-
+-                <ImageView
+-                    android:id="@+id/launcher_image"
+-                    android:layout_width="@dimen/_28sdp"
+-                    android:layout_height="@dimen/_28sdp"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_6sdp"
+-                    android:background="@android:color/transparent"
+-                    android:contentDescription="@string/setting_category_launcher"
+-                    android:scaleType="fitCenter"
+-                    android:scaleX="0.92"
+-                    android:scaleY="0.92"
+-                    app:srcCompat="@drawable/ic_setting_launcher" />
+-
+-                <TextView
+-                    android:layout_width="0dp"
+-                    android:layout_height="wrap_content"
+-                    android:layout_alignParentEnd="true"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_8sdp"
+-                    android:layout_toEndOf="@+id/launcher_image"
+-                    android:text="@string/setting_category_launcher"
+-                    android:textColor="@color/black_or_white" />
+-            </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-            <com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout
+-                android:layout_width="wrap_content"
+-                android:layout_height="wrap_content"
+-                android:padding="@dimen/_8sdp"
+-                app:layout_constraintStart_toStartOf="@+id/launcher_settings"
+-                app:layout_constraintTop_toBottomOf="@+id/launcher_settings">
+-
+-                <ImageView
+-                    android:id="@+id/experimental_image"
+-                    android:layout_width="@dimen/_28sdp"
+-                    android:layout_height="@dimen/_28sdp"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_6sdp"
+-                    android:background="@android:color/transparent"
+-                    android:contentDescription="@string/setting_category_experimental"
+-                    android:scaleType="fitCenter"
+-                    android:scaleX="0.92"
+-                    android:scaleY="0.92"
+-                    app:srcCompat="@drawable/ic_setting_experimental" />
+-
+-                <TextView
+-                    android:layout_width="0dp"
+-                    android:layout_height="wrap_content"
+-                    android:layout_alignParentEnd="true"
+-                    android:layout_centerVertical="true"
+-                    android:layout_marginStart="@dimen/_8sdp"
+-                    android:layout_toEndOf="@+id/experimental_image"
+-                    android:text="@string/setting_category_experimental"
+-                    android:textColor="@color/black_or_white" />
+-            </com.movtery.zalithlauncher.ui.layout.AnimRelativeLayout>
+-
+-        </com.angcyo.tablayout.DslTabLayout>
++            android:layout_marginStart="3dp"
++            android:layout_marginEnd="3dp"
++            android:layout_weight="1"
++            android:background="@drawable/cz_tab_chip_bg"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:singleLine="true"
++            android:text="@string/setting_category_game"
++            android:textColor="@color/cz_nav_text"
++            android:textSize="14sp"
++            android:textStyle="bold" />
++
++        <TextView
++            android:id="@+id/settings_tab_launcher"
++            android:layout_width="0dp"
++            android:layout_height="match_parent"
++            android:layout_marginStart="3dp"
++            android:layout_marginEnd="3dp"
++            android:layout_weight="1"
++            android:background="@drawable/cz_tab_chip_bg"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:singleLine="true"
++            android:text="@string/setting_category_launcher"
++            android:textColor="@color/cz_nav_text"
++            android:textSize="14sp"
++            android:textStyle="bold" />
++
++        <TextView
++            android:id="@+id/settings_tab_experimental"
++            android:layout_width="0dp"
++            android:layout_height="match_parent"
++            android:layout_marginStart="3dp"
++            android:layout_marginEnd="3dp"
++            android:layout_weight="1"
++            android:background="@drawable/cz_tab_chip_bg"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:singleLine="true"
++            android:text="@string/setting_category_experimental"
++            android:textColor="@color/cz_nav_text"
++            android:textSize="14sp"
++            android:textStyle="bold" />
++
++    </LinearLayout>
++
++    <!-- 1.3dp divider between the category tabs and the settings content -->
++    <View
++        android:id="@+id/settings_divider"
++        android:layout_width="0dp"
++        android:layout_height="1.3dp"
++        android:layout_marginStart="12dp"
++        android:layout_marginTop="8dp"
++        android:layout_marginEnd="12dp"
++        android:background="@color/cz_outline"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toBottomOf="@id/settings_layout" />
+ 
+-    </androidx.constraintlayout.widget.ConstraintLayout>
++    <androidx.fragment.app.FragmentContainerView
++        android:id="@+id/settings_viewpager"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:layout_marginTop="2dp"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toBottomOf="@id/settings_divider" />
+ 
+-</androidx.constraintlayout.widget.ConstraintLayout>
+\ No newline at end of file
++</androidx.constraintlayout.widget.ConstraintLayout>
+diff -ruN a/ZalithLauncher/src/main/res/layout/fragment_settings_host.xml b/ZalithLauncher/src/main/res/layout/fragment_settings_host.xml
+--- a/ZalithLauncher/src/main/res/layout/fragment_settings_host.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/layout/fragment_settings_host.xml	2026-10-24 20:15:54.140312017 +0000
+@@ -0,0 +1,58 @@
++<?xml version="1.0" encoding="utf-8"?>
++<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
++    android:layout_width="match_parent"
++    android:layout_height="match_parent">
++
++    <androidx.constraintlayout.widget.ConstraintLayout
++        android:id="@+id/host_header"
++        android:layout_width="0dp"
++        android:layout_height="46dp"
++        android:layout_marginStart="12dp"
++        android:layout_marginTop="10dp"
++        android:layout_marginEnd="12dp"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent">
++
++        <TextView
++            android:id="@+id/host_title"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:textAllCaps="true"
++            android:textColor="@color/cz_text"
++            android:textSize="18sp"
++            android:textStyle="bold"
++            app:layout_constraintBottom_toBottomOf="parent"
++            app:layout_constraintStart_toStartOf="parent"
++            app:layout_constraintTop_toTopOf="parent" />
++
++        <TextView
++            android:id="@+id/host_action"
++            android:layout_width="wrap_content"
++            android:layout_height="38dp"
++            android:background="@drawable/cz_pill"
++            android:clickable="true"
++            android:focusable="true"
++            android:gravity="center"
++            android:paddingStart="16dp"
++            android:paddingEnd="16dp"
++            android:textColor="@color/cz_text"
++            android:textSize="13sp"
++            android:textStyle="bold"
++            android:visibility="gone"
++            app:layout_constraintBottom_toBottomOf="parent"
++            app:layout_constraintEnd_toEndOf="parent"
++            app:layout_constraintTop_toTopOf="parent" />
++    </androidx.constraintlayout.widget.ConstraintLayout>
++
++    <androidx.fragment.app.FragmentContainerView
++        android:id="@+id/host_container"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toBottomOf="@id/host_header" />
++
++</androidx.constraintlayout.widget.ConstraintLayout>
+diff -ruN a/ZalithLauncher/src/main/res/layout/view_account.xml b/ZalithLauncher/src/main/res/layout/view_account.xml
+--- a/ZalithLauncher/src/main/res/layout/view_account.xml	2026-10-24 20:15:54.148061872 +0000
++++ b/ZalithLauncher/src/main/res/layout/view_account.xml	2026-10-24 20:15:54.144492282 +0000
+@@ -11,6 +11,7 @@
+         android:layout_width="@dimen/_52sdp"
+         android:layout_height="@dimen/_52sdp"
+         android:scaleType="fitCenter"
++        android:visibility="gone"
+         android:src="@drawable/ic_help"
+         app:layout_constraintEnd_toEndOf="parent"
+         app:layout_constraintStart_toStartOf="parent"
+diff -ruN a/ZalithLauncher/src/main/res/layout/view_account_pill.xml b/ZalithLauncher/src/main/res/layout/view_account_pill.xml
+--- a/ZalithLauncher/src/main/res/layout/view_account_pill.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/layout/view_account_pill.xml	2026-10-24 20:15:54.151937205 +0000
+@@ -0,0 +1,71 @@
++<?xml version="1.0" encoding="utf-8"?>
++<com.movtery.zalithlauncher.ui.layout.AnimConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
++    xmlns:tools="http://schemas.android.com/tools"
++    android:layout_width="match_parent"
++    android:layout_height="match_parent"
++    android:background="@drawable/cz_pill"
++    android:paddingStart="4dp"
++    android:paddingEnd="6dp"
++    tools:ignore="ContentDescription">
++
++    <ImageView
++        android:id="@+id/user_icon"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:scaleType="fitCenter"
++        android:src="@drawable/ic_help"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintDimensionRatio="1:1"
++        app:layout_constraintHeight_percent="0.78"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent" />
++
++    <TextView
++        android:id="@+id/user_name"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:layout_marginStart="5dp"
++        android:autoSizeMaxTextSize="13sp"
++        android:autoSizeMinTextSize="7sp"
++        android:autoSizeTextType="uniform"
++        android:gravity="center_vertical|start"
++        android:singleLine="true"
++        android:textColor="@color/cz_text"
++        android:textStyle="bold"
++        app:layout_constraintBottom_toTopOf="@id/account_type"
++        app:layout_constraintEnd_toStartOf="@id/account_chevron"
++        app:layout_constraintHeight_percent="0.5"
++        app:layout_constraintStart_toEndOf="@id/user_icon"
++        app:layout_constraintTop_toTopOf="parent"
++        app:layout_constraintVertical_chainStyle="packed" />
++
++    <TextView
++        android:id="@+id/account_type"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:layout_marginStart="5dp"
++        android:autoSizeMaxTextSize="10sp"
++        android:autoSizeMinTextSize="6sp"
++        android:autoSizeTextType="uniform"
++        android:gravity="center_vertical|start"
++        android:singleLine="true"
++        android:textColor="@color/cz_text_dim"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintEnd_toStartOf="@id/account_chevron"
++        app:layout_constraintHeight_percent="0.35"
++        app:layout_constraintStart_toEndOf="@id/user_icon"
++        app:layout_constraintTop_toBottomOf="@id/user_name" />
++
++    <ImageView
++        android:id="@+id/account_chevron"
++        android:layout_width="0dp"
++        android:layout_height="0dp"
++        android:src="@drawable/cz_ic_chevron"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintDimensionRatio="1:1"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintHeight_percent="0.5"
++        app:layout_constraintTop_toTopOf="parent" />
++
++</com.movtery.zalithlauncher.ui.layout.AnimConstraintLayout>
+diff -ruN a/ZalithLauncher/src/main/res/values/colors.xml b/ZalithLauncher/src/main/res/values/colors.xml
+--- a/ZalithLauncher/src/main/res/values/colors.xml	2026-10-24 20:15:54.197362918 +0000
++++ b/ZalithLauncher/src/main/res/values/colors.xml	2026-10-24 20:15:54.193637009 +0000
+@@ -1,42 +1,59 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
+-    <color name="black_or_white">#000000</color>
++    <color name="black_or_white">#FFFFFF</color>
+ 
+-    <color name="background_app">#BDD9DD</color>
+-    <color name="background_app_error">#DDBDBD</color>
+-    <color name="background_overlay">#CFCFCF</color>
+-    <color name="background_status_bar">#EDEDED</color>
+-    <color name="background_menu_top">#2D8B9C</color>
+-    <color name="background_menu_top_error">#9C2D2D</color>
+-    <color name="background_menu_element">#3299AB</color>
+-    <color name="background_ripple_effect">#A6A6A6</color>
+-
+-    <color name="button_background">#DDE0E1</color>
+-    <color name="button_background_selected">#BFC7CA</color>
+-    <color name="dialog_background">#F4F4F4</color>
+-
+-    <color name="menu_bar">#EBF4F3</color>
+-    <color name="menu_bar_text">#EBF4F3</color>
+-    <color name="menu_overlay">#BEFFFFFF</color>
+-    <color name="menu_progress">#3FA3B5</color>
+-
+-    <color name="background_item">#CCFFFFFF</color>
+-    <color name="background_item_selected">#D8DEEEF1</color>
+-    <color name="background_item_disabled">#D9FFDADA</color>
++    <color name="background_app">#1B0940</color>
++    <color name="background_app_error">#4A1330</color>
++    <color name="background_overlay">#3A1A78</color>
++    <color name="background_status_bar">#140730</color>
++    <color name="background_menu_top">#35106F</color>
++    <color name="background_menu_top_error">#8B1E4A</color>
++    <color name="background_menu_element">#6D3BD2</color>
++    <color name="background_ripple_effect">#DCCBFF</color>
++
++    <color name="button_background">#4A1F96</color>
++    <color name="button_background_selected">#6D3BD2</color>
++    <color name="dialog_background">#2A0F5C</color>
++
++    <color name="menu_bar">#4A1F96</color>
++    <color name="menu_bar_text">#F4EEFF</color>
++    <color name="menu_overlay">#BE1B0940</color>
++    <color name="menu_progress">#A56BFF</color>
++
++    <color name="background_item">#BF35106F</color>
++    <color name="background_item_selected">#D84A1F96</color>
++    <color name="background_item_disabled">#D8452850</color>
+     <color name="background_sponsor_intermediate">#CCFFCB8B</color>
+     <color name="background_sponsor_advanced">#CCFDA28A</color>
+ 
+-    <color name="edit_box_fill">#E1EDEC</color>
+-    <color name="edit_box_fill_selected">#D2E8E5</color>
++    <color name="edit_box_fill">#3F1A85</color>
++    <color name="edit_box_fill_selected">#55259F</color>
+ 
+-    <color name="mod_category_fill">#80D1D1D1</color>
+-    <color name="text_background_fill">#B3DEDEDE</color>
++    <color name="mod_category_fill">#804A1F96</color>
++    <color name="text_background_fill">#B335106F</color>
+ 
+-    <color name="settings_category">#17958B</color>
++    <color name="settings_category">#B993FF</color>
+ 
+     <color name="favorite_color">#FA7C7C</color>
+ 
+-    <color name="icon_color">#151515</color>
++    <color name="icon_color">#FFFFFF</color>
+ 
+-    <color name="primary_text">#0E0E0E</color>
++    <color name="primary_text">#F4EEFF</color>
++
++    <!-- CryzenLauncher design tokens -->
++    <color name="cz_violet">#35106F</color>
++    <color name="cz_violet_deep">#1B0940</color>
++    <color name="cz_violet_mid">#4A1F96</color>
++    <color name="cz_violet_light">#6D3BD2</color>
++    <color name="cz_outline">#8A3FFF</color>
++    <color name="cz_glow">#A56BFF</color>
++    <color name="cz_blue">#2851A3</color>
++    <color name="cz_sidebar_top">#7F00FF</color>
++    <color name="cz_sidebar_bottom">#2851A3</color>
++    <color name="cz_text">#F4EEFF</color>
++    <color name="cz_text_dim">#BBAAE3</color>
++    <color name="cz_danger">#FF6B8A</color>
++    <color name="cz_glass_start">#F235106F</color>
++    <color name="cz_glass_end">#F2402690</color>
++    <color name="cz_skin_fill">#B335106F</color>
+ </resources>
+\ No newline at end of file
+diff -ruN a/ZalithLauncher/src/main/res/values/strings.xml b/ZalithLauncher/src/main/res/values/strings.xml
+--- a/ZalithLauncher/src/main/res/values/strings.xml	2026-10-24 20:15:54.205926524 +0000
++++ b/ZalithLauncher/src/main/res/values/strings.xml	2026-10-24 20:15:54.201436783 +0000
+@@ -693,4 +693,27 @@
+     <!-- Sponsorship Related -->
+     <string name="request_sponsorship_title">Support My Development</string>
+     <string name="request_sponsorship_message">Most of the content in this software is developed and maintained by me alone. If you find this software helpful and are in a position to do so, I hope you will consider sponsoring me to give me more motivation to continue developing and improving it. Thank you for your support!</string>
++
++    <!-- CryzenLauncher navigation -->
++    <string name="cz_nav_home">Home</string>
++    <string name="cz_nav_account">Akun</string>
++    <string name="cz_nav_mod">Mod</string>
++    <string name="cz_nav_control">Control</string>
++    <string name="cz_nav_settings">Settings</string>
++    <string name="cz_nav_mod_no_version">Pilih atau pasang versi dulu untuk membuka Mod.</string>
++    <string name="cz_menu_download">Download</string>
++    <string name="cz_menu_about">About</string>
++    <string name="cz_video_setting">Video Setting</string>
++    <string name="cz_banner_coming_soon">Tersedia di tahap berikutnya</string>
++    <string name="cz_control_profiles">BUKA GUI EDITOR</string>
++    <string name="cz_control_title">Control</string>
++    <string name="cz_banner_load_failed">Gambar banner gagal dimuat.</string>
++    <string name="cz_account_add">Tambah akun</string>
++    <string name="cz_account_switch">Switch akun</string>
++    <string name="cz_account_none">Belum ada akun. Tambahkan akun dulu.</string>
++    <string name="cz_theme_violet">Tema Violet</string>
++    <string name="cz_theme_dark">Tema Dark</string>
++    <string name="cz_theme_white">Tema White</string>
++    <string name="cz_play">PLAY</string>
++    <string name="cz_download">UNDUH</string>
+ </resources>
+diff -ruN a/ZalithLauncher/src/main/res/values-mcc998/colors.xml b/ZalithLauncher/src/main/res/values-mcc998/colors.xml
+--- a/ZalithLauncher/src/main/res/values-mcc998/colors.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/values-mcc998/colors.xml	2026-10-24 20:15:54.169717245 +0000
+@@ -0,0 +1,44 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <color name="black_or_white">#FFFFFF</color>
++    <color name="background_app">#0B0B10</color>
++    <color name="background_app_error">#3A1020</color>
++    <color name="background_overlay">#15151C</color>
++    <color name="background_status_bar">#07070B</color>
++    <color name="background_menu_top">#16161D</color>
++    <color name="background_menu_top_error">#7A1E3A</color>
++    <color name="background_menu_element">#2A2A38</color>
++    <color name="background_ripple_effect">#6D6D8A</color>
++    <color name="button_background">#22222C</color>
++    <color name="button_background_selected">#343446</color>
++    <color name="dialog_background">#17171F</color>
++    <color name="menu_bar">#1E1E28</color>
++    <color name="menu_bar_text">#ECECF3</color>
++    <color name="menu_overlay">#BE0B0B10</color>
++    <color name="menu_progress">#8A5CFF</color>
++    <color name="background_item">#BF1A1A22</color>
++    <color name="background_item_selected">#D8262634</color>
++    <color name="background_item_disabled">#D8202028</color>
++    <color name="edit_box_fill">#1D1D27</color>
++    <color name="edit_box_fill_selected">#2B2B3A</color>
++    <color name="mod_category_fill">#80262634</color>
++    <color name="text_background_fill">#B31A1A22</color>
++    <color name="settings_category">#B993FF</color>
++    <color name="icon_color">#FFFFFF</color>
++    <color name="primary_text">#ECECF3</color>
++    <color name="cz_violet">#15151C</color>
++    <color name="cz_violet_deep">#0B0B10</color>
++    <color name="cz_violet_mid">#262634</color>
++    <color name="cz_violet_light">#3A3A4E</color>
++    <color name="cz_outline">#6A3FD6</color>
++    <color name="cz_glow">#8A5CFF</color>
++    <color name="cz_blue">#2851A3</color>
++    <color name="cz_sidebar_top">#7F00FF</color>
++    <color name="cz_sidebar_bottom">#2851A3</color>
++    <color name="cz_text">#ECECF3</color>
++    <color name="cz_text_dim">#9A9AB0</color>
++    <color name="cz_danger">#FF6B8A</color>
++    <color name="cz_glass_start">#F21A1A22</color>
++    <color name="cz_glass_end">#F2262634</color>
++    <color name="cz_skin_fill">#B31A1A22</color>
++</resources>
+diff -ruN a/ZalithLauncher/src/main/res/values-mcc998/styles.xml b/ZalithLauncher/src/main/res/values-mcc998/styles.xml
+--- a/ZalithLauncher/src/main/res/values-mcc998/styles.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/values-mcc998/styles.xml	2026-10-24 20:15:54.173612387 +0000
+@@ -0,0 +1,26 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="AppTheme" parent="@style/Theme.AppCompat.NoActionBar">
++        <item name="windowNoTitle">true</item>
++        <item name="windowActionBar">false</item>
++        <item name="android:windowFullscreen">true</item>
++        <item name="android:windowContentOverlay">@null</item>
++        <item name="android:statusBarColor">@color/background_status_bar</item>
++        <item name="android:navigationBarColor">@color/background_app</item>
++        <item name="android:scrollbarThumbHorizontal">@color/background_menu_element</item>
++        <item name="android:scrollbarThumbVertical">@color/background_menu_element</item>
++        <item name="android:textSize">@dimen/_12ssp</item>
++    </style>
++
++    <style name="CustomDialogStyle" parent="Theme.AppCompat.Dialog">
++        <item name="android:windowBackground">@drawable/dialog_background</item>
++        <item name="android:scrollbarThumbHorizontal">@color/background_menu_element</item>
++        <item name="android:scrollbarThumbVertical">@color/background_menu_element</item>
++    </style>
++
++    <style name="CustomAlertDialogTheme" parent="Theme.AppCompat.Dialog.Alert">
++        <item name="android:windowBackground">@drawable/dialog_background</item>
++        <item name="android:scrollbarThumbHorizontal">@color/background_menu_element</item>
++        <item name="android:scrollbarThumbVertical">@color/background_menu_element</item>
++    </style>
++</resources>
+diff -ruN a/ZalithLauncher/src/main/res/values-mcc999/colors.xml b/ZalithLauncher/src/main/res/values-mcc999/colors.xml
+--- a/ZalithLauncher/src/main/res/values-mcc999/colors.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/values-mcc999/colors.xml	2026-10-24 20:15:54.177547950 +0000
+@@ -0,0 +1,44 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <color name="black_or_white">#1B1530</color>
++    <color name="background_app">#F2F0FA</color>
++    <color name="background_app_error">#FFD6DE</color>
++    <color name="background_overlay">#E9E3F8</color>
++    <color name="background_status_bar">#E2DBF5</color>
++    <color name="background_menu_top">#FFFFFF</color>
++    <color name="background_menu_top_error">#FFB3C1</color>
++    <color name="background_menu_element">#CDBBF5</color>
++    <color name="background_ripple_effect">#5E3BB8</color>
++    <color name="button_background">#E3D9FA</color>
++    <color name="button_background_selected">#CDBBF5</color>
++    <color name="dialog_background">#FFFFFF</color>
++    <color name="menu_bar">#E3D9FA</color>
++    <color name="menu_bar_text">#1B1530</color>
++    <color name="menu_overlay">#BEEFEAFB</color>
++    <color name="menu_progress">#7F00FF</color>
++    <color name="background_item">#BFFFFFFF</color>
++    <color name="background_item_selected">#D8E3D9FA</color>
++    <color name="background_item_disabled">#D8D4CFE6</color>
++    <color name="edit_box_fill">#F3EFFC</color>
++    <color name="edit_box_fill_selected">#E3D9FA</color>
++    <color name="mod_category_fill">#80E3D9FA</color>
++    <color name="text_background_fill">#B3FFFFFF</color>
++    <color name="settings_category">#5B22B8</color>
++    <color name="icon_color">#1B1530</color>
++    <color name="primary_text">#1B1530</color>
++    <color name="cz_violet">#FFFFFF</color>
++    <color name="cz_violet_deep">#EEE9FA</color>
++    <color name="cz_violet_mid">#E3D9FA</color>
++    <color name="cz_violet_light">#CDBBF5</color>
++    <color name="cz_outline">#7F00FF</color>
++    <color name="cz_glow">#A56BFF</color>
++    <color name="cz_blue">#9DB4F2</color>
++    <color name="cz_sidebar_top">#7F00FF</color>
++    <color name="cz_sidebar_bottom">#2851A3</color>
++    <color name="cz_text">#1B1530</color>
++    <color name="cz_text_dim">#5E5680</color>
++    <color name="cz_danger">#D6335A</color>
++    <color name="cz_glass_start">#F2FFFFFF</color>
++    <color name="cz_glass_end">#F2EDE6FB</color>
++    <color name="cz_skin_fill">#E6EFE9FB</color>
++</resources>
+diff -ruN a/ZalithLauncher/src/main/res/values-mcc999/styles.xml b/ZalithLauncher/src/main/res/values-mcc999/styles.xml
+--- a/ZalithLauncher/src/main/res/values-mcc999/styles.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/ZalithLauncher/src/main/res/values-mcc999/styles.xml	2026-10-24 20:15:54.181763220 +0000
+@@ -0,0 +1,36 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="AppTheme" parent="@style/Theme.AppCompat.Light.NoActionBar">
++        <item name="windowNoTitle">true</item>
++        <item name="windowActionBar">false</item>
++        <item name="android:windowFullscreen">true</item>
++        <item name="android:windowContentOverlay">@null</item>
++        <item name="android:statusBarColor">@color/background_status_bar</item>
++        <item name="android:navigationBarColor">@color/background_app</item>
++        <item name="android:scrollbarThumbHorizontal">@color/background_menu_element</item>
++        <item name="android:scrollbarThumbVertical">@color/background_menu_element</item>
++        <item name="android:textSize">@dimen/_12ssp</item>
++    </style>
++
++    <style name="CustomDialogStyle" parent="Theme.AppCompat.Light.Dialog">
++        <item name="android:windowBackground">@drawable/dialog_background</item>
++        <item name="android:scrollbarThumbHorizontal">@color/background_menu_element</item>
++        <item name="android:scrollbarThumbVertical">@color/background_menu_element</item>
++    </style>
++
++    <style name="CustomAlertDialogTheme" parent="Theme.AppCompat.Light.Dialog.Alert">
++        <item name="android:windowBackground">@drawable/dialog_background</item>
++        <item name="android:scrollbarThumbHorizontal">@color/background_menu_element</item>
++        <item name="android:scrollbarThumbVertical">@color/background_menu_element</item>
++    </style>
++
++    <style name="RoundedCornersImageView">
++        <item name="cornerFamily">rounded</item>
++        <item name="cornerSize">4%</item>
++    </style>
++
++    <style name="RoundImageView">
++        <item name="cornerFamily">rounded</item>
++        <item name="cornerSize">50%</item>
++    </style>
++</resources>
+diff -ruN a/ZalithLauncher/src/main/res/values-night/colors_night.xml b/ZalithLauncher/src/main/res/values-night/colors_night.xml
+--- a/ZalithLauncher/src/main/res/values-night/colors_night.xml	2026-10-24 20:15:54.189543284 +0000
++++ b/ZalithLauncher/src/main/res/values-night/colors_night.xml	2026-10-24 20:15:54.185849478 +0000
+@@ -2,38 +2,38 @@
+ <resources>
+     <color name="black_or_white">#FFFFFF</color>
+ 
+-    <color name="background_app">#181818</color>
+-    <color name="background_app_error">#431A1A</color>
+-    <color name="background_overlay">#464646</color>
+-    <color name="background_status_bar">#242424</color>
+-    <color name="background_menu_top">#232323</color>
+-    <color name="background_menu_top_error">#E62E0909</color>
+-    <color name="background_menu_element">#1F7281</color>
+-    <color name="background_ripple_effect">#DCDCDC</color>
+-
+-    <color name="button_background">#3C3C3C</color>
+-    <color name="button_background_selected">#5B5B5B</color>
+-    <color name="dialog_background">#232323</color>
+-
+-    <color name="menu_bar">#555555</color>
+-    <color name="menu_overlay">#BE232323</color>
+-    <color name="menu_progress">#888888</color>
+-
+-    <color name="background_item">#BF2E2E2E</color>
+-    <color name="background_item_selected">#D8373737</color>
+-    <color name="background_item_disabled">#D8452828</color>
++    <color name="background_app">#1B0940</color>
++    <color name="background_app_error">#4A1330</color>
++    <color name="background_overlay">#3A1A78</color>
++    <color name="background_status_bar">#140730</color>
++    <color name="background_menu_top">#35106F</color>
++    <color name="background_menu_top_error">#8B1E4A</color>
++    <color name="background_menu_element">#6D3BD2</color>
++    <color name="background_ripple_effect">#DCCBFF</color>
++
++    <color name="button_background">#4A1F96</color>
++    <color name="button_background_selected">#6D3BD2</color>
++    <color name="dialog_background">#2A0F5C</color>
++
++    <color name="menu_bar">#4A1F96</color>
++    <color name="menu_overlay">#BE1B0940</color>
++    <color name="menu_progress">#A56BFF</color>
++
++    <color name="background_item">#BF35106F</color>
++    <color name="background_item_selected">#D84A1F96</color>
++    <color name="background_item_disabled">#D8452850</color>
+     <color name="background_sponsor_intermediate">#80BD6C2D</color>
+     <color name="background_sponsor_advanced">#80B83C1F</color>
+ 
+-    <color name="edit_box_fill">#4C4C4C</color>
+-    <color name="edit_box_fill_selected">#636363</color>
++    <color name="edit_box_fill">#3F1A85</color>
++    <color name="edit_box_fill_selected">#55259F</color>
+ 
+-    <color name="mod_category_fill">#804C4C4C</color>
+-    <color name="text_background_fill">#B3434343</color>
++    <color name="mod_category_fill">#804A1F96</color>
++    <color name="text_background_fill">#B335106F</color>
+ 
+-    <color name="settings_category">#31E2D4</color>
++    <color name="settings_category">#B993FF</color>
+ 
+     <color name="icon_color">#FFFFFF</color>
+ 
+-    <color name="primary_text">#FFFFFF</color>
++    <color name="primary_text">#F4EEFF</color>
+ </resources>
+\ No newline at end of file
